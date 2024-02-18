@@ -6,10 +6,6 @@ use strum::IntoEnumIterator;
 pub struct CsvBackendUi {
     state: PersistentState,
     picked_path: Option<PathBuf>,
-
-    edit_header_names: bool,
-    edit_mode: bool,
-    // edit_text: Option<String>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -17,10 +13,6 @@ struct PersistentState {
     separator: Separator,
     has_headers: bool,
     skip_first_rows: usize,
-
-    row_height: f32,
-    // skippable_rows: bool,
-    // skippable_columns: bool,
 }
 
 impl Default for PersistentState {
@@ -29,9 +21,6 @@ impl Default for PersistentState {
             separator: Separator::default(),
             has_headers: true,
             skip_first_rows: 0,
-            row_height: 30.0,
-            // skippable_rows: true,
-            // skippable_columns: true,
         }
     }
 }
@@ -41,9 +30,6 @@ impl CsvBackendUi {
         CsvBackendUi {
             state: PersistentState::default(),
             picked_path: None,
-            edit_header_names: false,
-            edit_mode: false,
-            // edit_text: None,
         }
     }
 
@@ -93,19 +79,6 @@ impl CsvBackendUi {
                 self.try_load(csv_backend);
             }
             ui.separator();
-
-            ui.checkbox(&mut self.edit_mode, "Edit mode")
-                .on_hover_text("Allow editing of the data in the table");
-            if self.state.has_headers {
-                ui.checkbox(&mut self.edit_header_names, "Edit header names");
-            }
-            ui.separator();
-
-            ui.add(
-                Slider::new(&mut self.state.row_height, 10.0..=64.0)
-                    .text("Row height")
-                    .step_by(2.0),
-            )
         });
         if csv_backend.status().is_error() {
             // error_label(csv_table.status(), ui);
