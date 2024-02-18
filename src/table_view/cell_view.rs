@@ -1,5 +1,5 @@
 use egui::text::LayoutJob;
-use egui::{TextFormat, Ui};
+use egui::{Label, TextFormat, Ui};
 
 use rvariant::Variant;
 
@@ -54,7 +54,10 @@ pub(super) fn show_cell(
         }
     }
     ui.horizontal_wrapped(|ui| {
-        ui.label(job);
+        // ui.label(job);
+        ui.add(Label::new(job).selectable(false)).on_hover_ui(|ui| {
+            ui.label(cell_text);
+        });
         if let Some(m) = metadata {
             for (color, icon) in m.lints.iter().filter_map(|l| {
                 if let Lint::AddIcon { color, icon } = l {

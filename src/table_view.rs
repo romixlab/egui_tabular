@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 
 use egui::{
-    Align, Color32, Event, Frame, Id, Key, Label, Layout, RichText, ScrollArea, Sense, TextFormat,
-    Ui, Vec2,
+    Align, Color32, Frame, Id, Key, Label, Layout, RichText, ScrollArea, Sense, TextFormat, Ui,
+    Vec2,
 };
 use egui_modal::Modal;
 use itertools::Itertools;
@@ -12,6 +12,7 @@ use log::{debug, warn};
 
 use crate::backend::TableBackend;
 use crate::cell::{CellCoord, CellKind, StaticCellKind};
+use crate::column::RequiredColumn;
 use crate::filter::{FilterOperation, RowFilter, VariantFilter};
 use rvariant::{Variant, VariantTy};
 
@@ -19,9 +20,10 @@ mod cell_edit;
 mod cell_view;
 #[allow(dead_code)]
 mod table;
-use table::{Column, SelectedRange, SelectionEvent, TableBody};
+use table::{Column, SelectedRange, TableBody};
 
 use self::widgets::flag_label;
+mod interaction;
 #[allow(dead_code)]
 mod layout;
 #[allow(dead_code)]
@@ -30,13 +32,18 @@ mod util;
 mod widgets;
 
 pub struct TableView {
-    required_columns: Vec<RequiredColumn>,
-    state: State,
     id: String,
+    state: State,
+    required_columns: Vec<RequiredColumn>,
 
     settings: Settings,
     persistent_settings: PersistentSettings,
+
     tool_ui: Option<CustomToolUiFn>,
+
+    // required_columns' idx -> CustomUiFn
+    custom_ui: HashMap<u32, CustomUiFn>,
+    custom_edit_ui: HashMap<u32, CustomEditUiFn>,
 }
 
 // TODO: column ty conversion dropdown
@@ -55,7 +62,7 @@ pub struct Settings {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct PersistentSettings {
+pub struct PersistentSettings {
     loose_column_order: Vec<String>,
     row_height: f32,
     show_column_types: bool,
@@ -93,44 +100,6 @@ pub type CustomEditUiFn =
 pub enum CustomEditUiResponse {
     UpdateCell(Variant),
     CustomUiResponse(CustomUiResponse),
-}
-
-#[derive(Clone)]
-pub struct RequiredColumn {
-    pub name: String,
-    pub synonyms: Vec<String>,
-    pub ty: VariantTy,
-    pub ty_locked: bool,
-    pub default_value: Option<Variant>,
-    custom_ui: Option<CustomUiFn>,
-    custom_edit_ui: Option<CustomEditUiFn>,
-    user_map: Option<u32>,
-}
-
-impl RequiredColumn {
-    pub fn new(
-        name: impl AsRef<str>,
-        synonyms: impl IntoIterator<Item = &'static str>,
-        ty: VariantTy,
-        ty_locked: bool,
-        default_value: Option<Variant>,
-        user_map: Option<u32>,
-        custom_ui: Option<CustomUiFn>,
-        custom_edit_ui: Option<CustomEditUiFn>,
-    ) -> Self {
-        let mut synonyms_sum = vec![name.as_ref().to_lowercase()];
-        synonyms_sum.extend(synonyms.into_iter().map(|s| s.to_lowercase()));
-        RequiredColumn {
-            name: name.as_ref().to_string(),
-            synonyms: synonyms_sum,
-            ty,
-            ty_locked,
-            default_value,
-            user_map,
-            custom_ui,
-            custom_edit_ui,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -205,6 +174,7 @@ pub enum Lint {
 #[derive(Clone, Debug)]
 struct UiColumn {
     name: String,
+    synonyms: Vec<String>,
     ty: VariantTy,
     ty_locked: bool,
     default_value: Option<Variant>,
@@ -215,7 +185,6 @@ struct UiColumn {
     // Header is correctly recognized by upstream code, show checkmark to reassure user
     recognized: bool,
     width: f32,
-    user_map: Option<u32>,
     custom_ui: Option<CustomUiFn>,
     custom_edit_ui: Option<CustomEditUiFn>,
     is_tool: bool, // TODO: Refactor into enum
@@ -260,7 +229,7 @@ impl Hash for UiColumn {
 }
 
 #[derive(Copy, Clone)]
-struct SelectionKeyNavigation {
+pub(crate) struct SelectionKeyNavigation {
     shift: bool,
     up: bool,
     down: bool,
@@ -299,13 +268,16 @@ impl TableView {
         id: S,
     ) -> Self {
         TableView {
-            required_columns: required_columns.into_iter().collect(),
-            state: State::default(),
             id: id.as_ref().to_string(),
+            state: State::default(),
+            required_columns: required_columns.into_iter().collect(),
 
             settings: Settings::default(),
             persistent_settings: PersistentSettings::default(),
+
             tool_ui: None,
+            custom_ui: HashMap::new(),
+            custom_edit_ui: HashMap::new(),
         }
     }
 
@@ -318,17 +290,17 @@ impl TableView {
         //     ui.label("Empty table");
         //     return;
         // }
-        if data.one_shot_flags().column_info_updated {
+        if data.one_shot_flags().first_pass || data.one_shot_flags().column_info_updated {
             self.map_columns(data);
         }
         if data.one_shot_flags().cleared {
             self.state.cell_metadata.clear();
         }
         data.poll();
-        if self.state.columns.is_empty() {
-            ui.label("TableView: Empty table");
-            return;
-        }
+        // if self.state.columns.is_empty() {
+        //     ui.label("TableView: Empty table");
+        //     return;
+        // }
 
         let mut modal = Modal::new(ui.ctx(), "table_view_modal").with_close_on_outside_click(false);
         let is_empty_table = data.row_count() == 0;
@@ -375,7 +347,11 @@ impl TableView {
                                             } else {
                                                 ui.horizontal(|ui| {
                                                     handle.ui(ui, |ui| {
-                                                        ui.add(Label::new(RichText::new(&ui_column.name).strong().monospace()).truncate(true).selectable(false));
+                                                        ui.add(Label::new(RichText::new(&ui_column.name).strong().monospace()).truncate(true).selectable(false)).on_hover_ui(|ui| {
+                                                            if !ui_column.synonyms.is_empty() {
+                                                                ui.label(format!("Alternative names: {:?}", ui_column.synonyms));
+                                                            }
+                                                        });
                                                         // ui.monospace(&ui_column.name);
                                                     });
                                                     ui.menu_button(egui_phosphor::regular::FUNNEL, |ui| {
@@ -425,7 +401,7 @@ impl TableView {
                 table_builder
             };
             for h in &self.state.columns {
-                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 54.0).at_least(36.0).clip(true));
+                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 60.0).at_least(36.0).clip(true));
             }
             let mut table_builder = table_builder
                 .header(24.0, |mut row| {
@@ -452,309 +428,57 @@ impl TableView {
         is_empty_table: bool,
         window_contains_pointer: bool,
     ) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Table View").strong().monospace());
+
             self.show_filters_in_use(data, ui);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let show_edit_buttons =
-                    self.settings.editable_cells && !data.persistent_flags().is_read_only;
-                let add_row_clicked = show_edit_buttons && ui.button("Add row").clicked();
-                if show_edit_buttons && !is_empty_table && ui.button("Clear").clicked() {
-                    self.state.clear_requested = true;
-                    modal.open();
-                }
-                let add_row_shortcut_pressed = self.state.cell_when_editing.is_none()
-                    && window_contains_pointer
-                    && ui.input(|i| i.key_pressed(Key::R) && i.modifiers.shift);
-                if add_row_clicked || add_row_shortcut_pressed {
-                    data.create_row(
-                        self.state
-                            .columns
-                            .iter()
-                            .filter_map(|c| c.default_value.clone().map(|d| (c.col_uid, d)))
-                            .collect(),
-                    );
-                }
-                if self.settings.editable_cells {
-                    ui.label(egui_phosphor::regular::PENCIL)
-                        .on_hover_text("Edit mode");
-                } else {
-                    ui.label(egui_phosphor::regular::EYE)
-                        .on_hover_text("View only mode, enable edit mode if needed");
-                }
-                if is_empty_table {
-                    ui.label("Empty table");
-                    if data.persistent_flags().is_read_only {
-                        ui.label("R/O").on_hover_text(
-                            "Data source for this table is read only, cannot modify anything",
-                        );
-                    }
-                }
-            });
-        });
-    }
-
-    fn handle_key_input(&mut self, data: &mut impl TableBackend, ui: &mut Ui) {
-        if ui.input(|i| i.key_pressed(Key::Enter)) {
-            if self.state.cell_when_editing.is_some() {
-                self.state.save_cell_changes_and_deselect = true;
-            } else {
-                self.state.selected_range = None;
-                self.state.last_pressed = None;
-            }
-        }
-        if ui.input(|i| i.key_pressed(Key::Escape)) {
-            if self.state.cell_when_editing.is_some() {
-                self.state.discard_cell_changes_and_deselect = true;
-            } else {
-                self.state.selected_range = None;
-                self.state.last_pressed = None;
-            }
-        }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::C)) {
-            if let Some(selected) = self.state.selected_range {
-                let mut text = String::new();
-                for mono_row_idx in selected.row_start..=selected.row_end {
-                    let Some(row_uid) = data.row_uid(mono_row_idx) else {
-                        continue;
-                    };
-                    for mono_col_idx in selected.col_start..=selected.col_end {
-                        let Some(col_uid) = self.state.columns.get(mono_col_idx).map(|u| u.col_uid)
-                        else {
-                            continue;
-                        };
-                        let cell_value = data
-                            .cell(CellCoord(row_uid, col_uid))
-                            .map(|v| v.value.to_string())
-                            .unwrap_or_default();
-                        text += cell_value.as_str();
-                        if mono_col_idx != selected.col_end {
-                            text += "\t";
-                        }
-                    }
-                    if mono_row_idx != selected.row_end {
-                        text += "\n";
-                    }
-                }
-                if !text.is_empty() {
-                    ui.output_mut(|i| i.copied_text = text);
-                }
-            }
-        }
-    }
-
-    fn handle_paste(&mut self, ui: &mut Ui, data: &mut impl TableBackend, modal: &mut Modal) {
-        let paste = ui.input(|i| {
-            i.events
-                .iter()
-                .find(|e| matches!(e, Event::Paste(_)))
-                .cloned()
-        });
-        let Some(Event::Paste(text)) = paste else {
-            return;
-        };
-        let mut rows = vec![];
-        for row in text.split('\n') {
-            let mut cols = vec![];
-            for col in row.split('\t') {
-                cols.push(col.trim().to_string());
-            }
-            rows.push(cols);
-        }
-        if rows.is_empty() {
-            return;
-        }
-        self.state.pasting_block_width = rows[0].len();
-        let is_equal_lengths =
-            rows.iter()
-                .map(|c| c.len())
-                .tuple_windows()
-                .fold(0i32, |acc, (l1, l2)| {
-                    self.state.pasting_block_width = l1.max(l2);
-                    acc + l1 as i32 - l2 as i32
-                })
-                == 0;
-        self.state.pasting_block_with_holes = !is_equal_lengths;
-
-        if let Some(selected_range) = &self.state.selected_range {
-            let selection_is_exact = rows.len() == selected_range.height()
-                && self.state.pasting_block_width == selected_range.width()
-                && is_equal_lengths;
-            self.state.about_to_paste_rows = rows;
-            if selection_is_exact {
-                self.paste_block(data);
-            } else {
-                // ask user what to do in handle_paste_continue
-                self.state.create_rows_on_paste = false;
-                self.state.fill_with_same_on_paste = false;
-                self.state.create_adhoc_cols_on_paste = false;
+            let show_edit_buttons =
+                self.settings.editable_cells && !data.persistent_flags().is_read_only;
+            let add_row_clicked = show_edit_buttons && ui.button("Add row").clicked();
+            if show_edit_buttons && !is_empty_table && ui.button("Clear").clicked() {
+                self.state.clear_requested = true;
                 modal.open();
             }
-        } else {
-            warn!("Refusing to paste without selection");
-        }
-    }
-
-    fn handle_paste_continue(&mut self, data: &mut impl TableBackend, modal: &mut Modal) {
-        if self.state.about_to_paste_rows.is_empty() {
-            return;
-        }
-        let rows = self.state.about_to_paste_rows.len();
-        let cols = self.state.pasting_block_width;
-        let Some(selected_range) = self.state.selected_range else {
-            return;
-        };
-
-        modal.show(|ui| {
-            modal.title(ui, "Paste");
-            ui.horizontal(|ui| {
-                modal.icon(ui, egui_modal::Icon::Warning);
-                ui.vertical(|ui| {
-                    ui.add_space(8.0);
-                    let with_holes = if self.state.pasting_block_with_holes {
-                        " (with holes)"
-                    } else {
-                        ""
-                    };
-                    ui.label(format!(
-                        "You are about to paste {}x{} block{} into {}x{} selection",
-                        rows,
-                        cols,
-                        with_holes,
-                        selected_range.height(),
-                        selected_range.width(),
-                    ));
-                    if selected_range.height() < rows {
-                        ui.checkbox(&mut self.state.create_rows_on_paste, "Create more rows");
-                    }
-                    if selected_range.height() > rows || selected_range.width() > cols {
-                        ui.checkbox(
-                            &mut self.state.fill_with_same_on_paste,
-                            "Fill with repeated values",
-                        );
-                    }
-                    if selected_range.width() < cols {
-                        ui.checkbox(
-                            &mut self.state.create_adhoc_cols_on_paste,
-                            "Create adhoc columns (not implemented yet)",
-                        );
-                    }
-                });
-            });
-            modal.buttons(ui, |ui| {
-                if modal.button(ui, "Close").clicked() {
-                    self.state.about_to_paste_rows.clear();
-                }
-                if modal.suggested_button(ui, "Paste").clicked() {
-                    self.paste_block(data);
-                }
-            });
-            if ui.input(|i| i.key_pressed(Key::Escape)) {
-                self.state.about_to_paste_rows.clear();
-                modal.close();
+            let add_row_shortcut_pressed = self.state.cell_when_editing.is_none()
+                && window_contains_pointer
+                && ui.input(|i| i.key_pressed(Key::R) && i.modifiers.shift);
+            if add_row_clicked || add_row_shortcut_pressed {
+                data.create_row(
+                    self.state
+                        .columns
+                        .iter()
+                        .filter_map(|c| {
+                            if c.is_tool {
+                                None
+                            } else {
+                                c.default_value.clone().map(|d| (c.col_uid, d))
+                            }
+                        })
+                        .collect(),
+                );
             }
-            if ui.input(|i| i.key_pressed(Key::Enter) && i.modifiers.ctrl) {
-                self.paste_block(data);
+            if self.settings.editable_cells {
+                ui.label(egui_phosphor::regular::PENCIL)
+                    .on_hover_text("Edit mode");
+            } else {
+                ui.label(egui_phosphor::regular::EYE)
+                    .on_hover_text("View only mode, enable edit mode if needed");
             }
-        });
-    }
-
-    fn paste_block(&mut self, data: &mut impl TableBackend) {
-        let Some(selected_range) = &self.state.selected_range else {
-            return;
-        };
-        let mut row_ids: Vec<Option<u32>> = (0..selected_range.height())
-            .map(|mono_row_idx| data.row_uid(mono_row_idx + selected_range.row_start))
-            .collect();
-
-        if self.state.create_rows_on_paste
-            && self.state.about_to_paste_rows.len() > selected_range.height()
-        {
-            for _ in 0..self.state.about_to_paste_rows.len() - selected_range.height() {
-                row_ids.push(data.create_row(HashMap::new()));
-            }
-        }
-
-        let col_ids: Vec<Option<(u32, VariantTy)>> = (0..selected_range.width())
-            .map(|mono_col_idx| {
-                self.state
-                    .columns
-                    .get(mono_col_idx + selected_range.col_start)
-                    .map(|col| (col.col_uid, col.ty))
-            })
-            .collect();
-
-        // TODO: create adhoc columns on paste
-        // if self.state.create_adhoc_cols_on_paste {
-        //     for _ in 0..self.state.about_to_paste_rows[0].len() - selected_range.width() {
-        //         col_ids.push(data.create_column());
-        //     }
-        // }
-        let mut changed_coords = vec![];
-
-        if self.state.fill_with_same_on_paste {
-            for (row_id, row) in row_ids
-                .into_iter()
-                .zip(self.state.about_to_paste_rows.iter().cycle())
-            {
-                let Some(row_id) = row_id else { continue };
-                for (col_id_ty, cell) in col_ids.iter().zip(row.iter().cycle()) {
-                    let Some((col_id, ty)) = col_id_ty else {
-                        continue;
-                    };
-                    let coord = CellCoord(row_id, *col_id);
-                    changed_coords.push(coord);
-                    data.modify_one(coord, Variant::from_str(cell, *ty));
+            ui.checkbox(&mut self.settings.editable_cells, "Edit");
+            if is_empty_table {
+                ui.label("Empty table");
+                if data.persistent_flags().is_read_only {
+                    ui.label("R/O").on_hover_text(
+                        "Data source for this table is read only, cannot modify anything",
+                    );
                 }
             }
-        } else {
-            for (row_id, row) in row_ids
-                .into_iter()
-                .zip(self.state.about_to_paste_rows.iter())
-            {
-                let Some(row_id) = row_id else { continue };
-                for (col_id_ty, cell) in col_ids.iter().zip(row.iter()) {
-                    let Some((col_id, ty)) = col_id_ty else {
-                        continue;
-                    };
-                    let coord = CellCoord(row_id, *col_id);
-                    changed_coords.push(coord);
-                    data.modify_one(coord, Variant::from_str(cell, *ty));
-                }
-            }
-        }
 
-        data.one_shot_flags_mut().cells_updated = changed_coords;
-        self.state.about_to_paste_rows.clear();
-    }
-
-    fn handle_clear_request(&mut self, data: &mut impl TableBackend, modal: &mut Modal) {
-        if !self.state.clear_requested {
-            return;
-        }
-        modal.show(|ui| {
-            modal.title(ui, "Clear all data");
-            ui.horizontal(|ui| {
-                modal.icon(ui, egui_modal::Icon::Warning);
-                ui.label("About to clear all table's data, are you sure?");
-            });
-            // modal.frame(ui, |ui| {
-            //     modal.icon(ui, egui_modal::Icon::Warning);
-            //     modal.body(ui, "About to clear all table's data, are you sure?");
-            // });
-            modal.buttons(ui, |ui| {
-                if modal.caution_button(ui, "Clear").clicked() {
-                    self.state.clear_requested = false;
-                    data.clear();
-                }
-                if modal.suggested_button(ui, "Cancel").clicked() {
-                    self.state.clear_requested = false;
-                    modal.close();
-                }
-                if ui.input(|i| i.key_pressed(Key::Escape)) {
-                    self.state.clear_requested = false;
-                    modal.close();
-                }
-            });
+            ui.label("Row height");
+            ui.add(egui::Slider::new(
+                &mut self.persistent_settings.row_height,
+                10.0..=500.0,
+            ));
         });
     }
 
@@ -877,7 +601,7 @@ impl TableView {
                     if ui_column.is_tool {
                         let hovered = ui_row.hovered();
                         ui_row.col(|ui| {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.monospace(format!("#{row_idx} G{row_uid}"));
                                 if self.settings.skippable_rows && (hovered || *row_skip) {
                                     let changed = ui.checkbox(row_skip, "Skip").changed();
@@ -890,22 +614,22 @@ impl TableView {
                                 if ui.button(egui_phosphor::regular::TRASH).clicked() {
                                     data.remove_rows(vec![row_uid]);
                                 }
-                            });
 
-                            let table_view_tool_state = self.state.tool_ui_state.entry((row_uid as i32).neg()).or_default();
-                            let row_flagged = *table_view_tool_state == Variant::Bool(true);
-                            if (hovered || row_flagged) && ui.add(flag_label(row_flagged).sense(Sense::click())).clicked() {
-                                *table_view_tool_state = Variant::Bool(!row_flagged);
-                            }
+                                let table_view_tool_state = self.state.tool_ui_state.entry((row_uid as i32).neg()).or_default();
+                                let row_flagged = *table_view_tool_state == Variant::Bool(true);
+                                if (hovered || row_flagged) && ui.add(flag_label(row_flagged).sense(Sense::click())).clicked() {
+                                    *table_view_tool_state = Variant::Bool(!row_flagged);
+                                }
 
-                            if hovered {
-                                if let Some(tool_ui) = &mut self.tool_ui {
-                                    let r = tool_ui(row_uid, self.state.tool_ui_state.entry(row_uid as i32).or_default(), ui);
-                                    if let Some(r) = r {
-                                        self.state.tool_ui_response = Some((row_uid, r));
+                                if hovered {
+                                    if let Some(tool_ui) = &mut self.tool_ui {
+                                        let r = tool_ui(row_uid, self.state.tool_ui_state.entry(row_uid as i32).or_default(), ui);
+                                        if let Some(r) = r {
+                                            self.state.tool_ui_response = Some((row_uid, r));
+                                        }
                                     }
                                 }
-                            }
+                                });
                         });
                         continue;
                     }
@@ -1031,6 +755,14 @@ impl TableView {
                                     );
                                 }
                             }
+                        } else {
+                            if cell_edit::add_and_select_missing_cell(
+                                self.settings.editable_cells,
+                                ui,
+                            ) {
+                                self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
+                                data.create_one(cell_uid_coord, Variant::Str(String::new()));
+                            }
                         }
                     });
                 }
@@ -1039,133 +771,74 @@ impl TableView {
         self.handle_selections(selection_event, key_navigation);
     }
 
-    fn handle_selections(
-        &mut self,
-        selection_event: Option<SelectionEvent>,
-        key_navigation: SelectionKeyNavigation,
-    ) {
-        if key_navigation.any_moves() {
-            let was_selected = self.state.selected_range;
-            if let Some(already_selected) = &mut self.state.selected_range {
-                if key_navigation.left {
-                    already_selected.move_left(key_navigation.shift);
-                }
-                if key_navigation.right {
-                    already_selected.move_right(key_navigation.shift, self.state.columns.len());
-                }
-                if key_navigation.up {
-                    already_selected.move_up(key_navigation.shift);
-                }
-                if key_navigation.down {
-                    already_selected.move_down(key_navigation.shift, 100); // TODO: unhardcode
-                }
-            }
-            if was_selected != self.state.selected_range {
-                self.state.save_cell_changes_and_deselect = true;
-                if let Some(r) = self.state.selected_range {
-                    self.state.last_pressed = Some((r.row_start, r.col_start));
-                }
-            }
-        }
-        let Some(e) = selection_event else {
-            return;
-        };
-        debug!("{e:?}");
-        match e {
-            SelectionEvent::Pressed(row, col) => {
-                if self.state.last_pressed == Some((row, col)) {
-                    debug!("Ignoring");
-                } else {
-                    if let Some(already_selected) = self.state.selected_range {
-                        if key_navigation.shift {
-                            debug!("Ignoring due to shift pressed");
-                            return;
-                        }
-                        if already_selected.is_single_cell() {
-                            debug!("Deselect and save if any changes");
-                            self.state.save_cell_changes_and_deselect = true;
-                        } else {
-                            debug!("Dropping multi cell selection");
-                            self.state.selected_range = None;
-                        }
-                    }
-                    self.state.last_pressed = Some((row, col));
-                }
-            }
-            SelectionEvent::Released(row, col) => {
-                let Some(prev_pressed) = self.state.last_pressed else {
-                    return;
-                };
-                let new_selected_range =
-                    SelectedRange::ordered(prev_pressed.0, prev_pressed.1, row, col);
-                if self.state.selected_range != Some(new_selected_range) {
-                    debug!("setting new selection range: {:?}", new_selected_range);
-                    self.state.selected_range = Some(new_selected_range);
-                } else {
-                    debug!("ignoring same selection");
-                }
-            }
-        }
-    }
-
     fn map_columns(&mut self, data: &impl TableBackend) {
         // debug!("TableView: Mapping columns");
+        self.state.columns.clear();
         let data_columns = data.used_columns();
         let mut matched_headers = Vec::new();
         let mut columns = Vec::new();
-        // skip absent columns for now, unless backend adds columns after the fact - non existent use case?
-        // let mut absent_col_idx = u32::MAX;
-        for required in &self.required_columns {
-            for (col_id, col) in data_columns.iter() {
-                let mut matched = false;
-                let name = col.name.to_lowercase();
-                for synonym in &required.synonyms {
-                    if &name == synonym {
-                        matched = true;
-                        break;
-                    }
-                }
-                if matched {
-                    if matched_headers.contains(col_id) {
-                        warn!("Double match for column: {}", col.name);
-                    } else {
-                        matched_headers.push(*col_id);
-                    }
+
+        for (required_col_idx, required) in self.required_columns.iter().enumerate() {
+            let required_col_idx = required_col_idx as u32;
+            if let Some(data_col_id) = required.find_match_map(data_columns) {
+                let data_col = data_columns.get(&data_col_id).unwrap();
+                if matched_headers.contains(&data_col_id) {
+                    warn!("Double match for column: {}", data_col.name);
+                } else {
+                    matched_headers.push(data_col_id);
+
                     let header = UiColumn {
-                        name: col.name.clone(),
+                        name: required.name.clone(),
+                        synonyms: required.synonyms.clone(),
                         ty: required.ty,
                         ty_locked: required.ty_locked,
                         default_value: required.default_value.clone(),
-                        col_uid: *col_id,
+                        col_uid: data_col_id,
                         skip: false,
-                        kind: col.kind,
+                        kind: data_col.kind,
                         recognized: true,
                         width: 0.0,
-                        user_map: required.user_map,
-                        custom_ui: required.custom_ui,
-                        custom_edit_ui: required.custom_edit_ui,
+                        custom_ui: self.custom_ui.get(&required_col_idx).cloned(),
+                        custom_edit_ui: self.custom_edit_ui.get(&required_col_idx).cloned(),
                         is_tool: false,
                     };
-                    columns.push((col.name.as_str(), header));
+                    columns.push((data_col.name.as_str(), header));
                 }
+            } else {
+                let header = UiColumn {
+                    name: required.name.clone(),
+                    synonyms: required.synonyms.clone(),
+                    ty: required.ty,
+                    ty_locked: required.ty_locked,
+                    default_value: required.default_value.clone(),
+                    col_uid: required_col_idx,
+                    skip: false,
+                    kind: CellKind::Static(StaticCellKind::Plain),
+                    recognized: true,
+                    width: 0.0,
+                    custom_ui: None,
+                    custom_edit_ui: None,
+                    is_tool: false,
+                };
+                columns.push((required.name.as_str(), header));
             }
         }
         // Put all additional columns to the right of required ones
-        for (col_id, col) in data_columns.iter().sorted_by_key(|(col_id, _)| **col_id) {
-            if !matched_headers.contains(col_id) {
+        for (data_col_id, col) in data_columns.iter().sorted_by_key(|(col_id, _)| **col_id) {
+            if !matched_headers.contains(data_col_id) {
                 columns.push((
                     col.name.as_str(),
                     UiColumn {
                         name: col.name.clone(),
+                        synonyms: Vec::new(),
                         ty: col.ty,
                         ty_locked: false,
-                        default_value: col.default.clone(),
-                        col_uid: *col_id,
+                        default_value: col.default_value.clone(),
+                        col_uid: *data_col_id,
                         skip: false,
                         kind: col.kind,
                         recognized: false,
                         width: 0.0,
-                        user_map: None,
                         custom_ui: None,
                         custom_edit_ui: None,
                         is_tool: false,
@@ -1175,6 +848,7 @@ impl TableView {
         }
         self.state.columns.push(UiColumn {
             name: "Tool".to_string(),
+            synonyms: Vec::new(),
             ty: VariantTy::Empty,
             ty_locked: false,
             default_value: None,
@@ -1183,7 +857,6 @@ impl TableView {
             kind: CellKind::Static(StaticCellKind::AutoGenerated),
             recognized: false,
             width: 0.0,
-            user_map: None,
             custom_ui: None,
             custom_edit_ui: None,
             is_tool: true,
@@ -1199,20 +872,6 @@ impl TableView {
         }
         debug!("mapped columns: {:?}", &self.state.columns);
     }
-
-    // pub fn cell<'a>(
-    //     &self,
-    //     coord: CellCoord,
-    //     data: &'a mut impl TableBackend,
-    // ) -> Option<TableCellRef<'a>> {
-    //     let user_mapped_cel = coord.1;
-    //     for col in &self.state.columns {
-    //         if col.user_map == Some(user_mapped_cel) {
-    //             return data.cell(CellCoord(coord.0, col.backend_map));
-    //         }
-    //     }
-    //     None
-    // }
 
     pub fn custom_ui_state(&self, uid_coord: CellCoord) -> Option<&Variant> {
         self.state.custom_ui_state.get(&uid_coord)
@@ -1262,78 +921,48 @@ impl TableView {
         self.state.tool_ui_response.take()
     }
 
-    pub fn add_cell_lint(&mut self, row_uid: u32, col_user_map: u32, lint: Lint) {
-        let col_uid = self
-            .state
-            .columns
-            .iter()
-            .find(|c| c.user_map == Some(col_user_map))
-            .map(|c| c.col_uid);
-        if let Some(col_uid) = col_uid {
-            let lints = &mut self
-                .state
-                .cell_metadata
-                .entry(CellCoord(row_uid, col_uid))
-                .or_default()
-                .lints;
-            if !lints.contains(&lint) {
-                lints.push(lint);
-            }
-        } else {
-            warn!("Failed to add lint for {row_uid} {col_user_map}");
+    pub fn add_cell_lint(&mut self, coord: CellCoord, lint: Lint) {
+        let lints = &mut self.state.cell_metadata.entry(coord).or_default().lints;
+        if !lints.contains(&lint) {
+            lints.push(lint);
         }
     }
 
-    pub fn add_cell_tooltip(&mut self, row_uid: u32, col_user_map: u32, tooltip: impl AsRef<str>) {
-        let col_uid = self
-            .state
-            .columns
-            .iter()
-            .find(|c| c.user_map == Some(col_user_map))
-            .map(|c| c.col_uid);
-        if let Some(col_uid) = col_uid {
-            self.state
-                .cell_metadata
-                .entry(CellCoord(row_uid, col_uid))
-                .or_default()
-                .tooltip = tooltip.as_ref().to_string();
+    pub fn add_cell_tooltip(&mut self, coord: CellCoord, tooltip: impl AsRef<str>) {
+        self.state.cell_metadata.entry(coord).or_default().tooltip = tooltip.as_ref().to_string();
+    }
+
+    pub fn clear_cell_lints(&mut self, coord: CellCoord) {
+        self.state.cell_metadata.entry(coord).and_modify(|m| {
+            m.tooltip.clear();
+            m.lints.clear();
+        });
+    }
+
+    pub fn load_state(&mut self, state: PersistentSettings) {
+        self.persistent_settings = state;
+    }
+
+    pub fn save_state(&self) -> PersistentSettings {
+        PersistentSettings {
+            loose_column_order: self.state.columns.iter().map(|c| c.name.clone()).collect(),
+            ..self.persistent_settings
         }
     }
 
-    pub fn clear_cell_lints(&mut self, row_uid: u32, col_user_map: u32) {
-        let col_uid = self
-            .state
-            .columns
-            .iter()
-            .find(|c| c.user_map == Some(col_user_map))
-            .map(|c| c.col_uid);
-        if let Some(col_uid) = col_uid {
-            self.state
-                .cell_metadata
-                .entry(CellCoord(row_uid, col_uid))
-                .and_modify(|m| {
-                    m.tooltip.clear();
-                    m.lints.clear();
-                });
-        }
+    pub fn set_custom_ui(&mut self, col_id: u32, ui: CustomUiFn) {
+        self.custom_ui.insert(col_id, ui);
     }
 
-    // pub fn load_state(&mut self, storage: &dyn eframe::Storage) {
-    //     let key = format!("table_view_{}", self.id);
-    //     self.persistent_settings = eframe::get_value(storage, key.as_str()).unwrap_or_default();
-    // }
+    pub fn set_custom_edit_ui(&mut self, col_id: u32, ui: CustomEditUiFn) {
+        self.custom_edit_ui.insert(col_id, ui);
+    }
 
-    // pub fn save_state(&self, storage: &mut dyn eframe::Storage) {
-    //     let key = format!("table_view_{}", self.id);
-    //     let settings = PersistentSettings {
-    //         loose_column_order: self.state.columns.iter().map(|c| c.name.clone()).collect(),
-    //         ..self.persistent_settings
-    //     };
-    //     // let mut column_names = self.state.columns.iter().map(|c| c.name.as_str());
-    //     // let column_names = IteratorAdapter(RefCell::new(&mut column_names));
-
-    //     eframe::set_value(storage, key.as_str(), &settings);
-    // }
+    pub fn set_recognized(&mut self, col_id: u32, recognized: bool) {
+        if let Some(column) = self.state.columns.iter_mut().find(|c| c.col_uid == col_id) {
+            column.recognized = recognized;
+        }
+    }
 
     pub fn scroll_to_row(&mut self, monotonic_row_idx: usize) {
         self.state.scroll_to_row = Some(monotonic_row_idx);

@@ -61,18 +61,26 @@ pub(super) fn show_cell_editor(
             }
         }
         Variant::U32(num) => {
-            if ui.add(DragValue::new(num)).lost_focus() {
-                Some(Variant::U32(*num))
-            } else {
-                None
-            }
+            ui.horizontal(|ui| {
+                ui.label("u32:");
+                if ui.add(DragValue::new(num)).lost_focus() {
+                    Some(Variant::U32(*num))
+                } else {
+                    None
+                }
+            })
+            .inner
         }
         Variant::U64(num) => {
-            if ui.add(DragValue::new(num)).lost_focus() {
-                Some(Variant::U64(*num))
-            } else {
-                None
-            }
+            ui.horizontal(|ui| {
+                ui.label("u64:");
+                if ui.add(DragValue::new(num)).lost_focus() {
+                    Some(Variant::U64(*num))
+                } else {
+                    None
+                }
+            })
+            .inner
         }
         v => {
             warn!("Editor is not implemented for {v}");
