@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cell::{CellCoord, TableCellRef};
-use crate::column::Column;
+use crate::column::BackendColumn;
 use crate::filter::RowFilter;
 use rvariant::Variant;
 
@@ -25,9 +25,9 @@ pub trait TableBackend {
     fn poll(&mut self);
 
     /// Returns all available columns. Columns use unique identifiers. Some are global, some context dependent.
-    fn available_columns(&self) -> &HashMap<u32, Column>;
+    fn available_columns(&self) -> &HashMap<u32, BackendColumn>;
     /// Returns actually used columns, unused data is e.g. not sent over the network.
-    fn used_columns(&self) -> &HashMap<u32, Column>;
+    fn used_columns(&self) -> &HashMap<u32, BackendColumn>;
     /// Choose whether to use a certain column or not.
     fn use_column(&mut self, col_uid: usize, is_used: bool);
     // Choose whether to use certain columns or not.
@@ -35,8 +35,8 @@ pub trait TableBackend {
 
     /// Returns total row count.
     fn row_count(&self) -> usize;
-    /// Get unique IDs of all rows
-    fn row_uid_set(&self) -> Vec<u32>;
+    // Get unique IDs of all rows
+    // fn row_uid_set(&self) -> Vec<u32>;
     /// Map index from 0..row_count() range to external data source row id
     fn row_uid(&self, monotonic_idx: usize) -> Option<u32>;
     /// Map unique row id back into monotonic index, if it is in the current view.
@@ -95,8 +95,10 @@ pub struct PersistentFlags {
 /// One shot flags: all flags are reset to false after poll() call
 #[derive(Default)]
 pub struct OneShotFlags {
-    /// Set once reload() is called.
-    pub reload_started: bool,
+    /// Set once data backend is created
+    pub first_pass: bool,
+    /// Set once reload() is called or full load is initiated through other means
+    pub reloaded: bool,
     /// Set once column names, types and default values was loaded
     pub column_info_updated: bool,
     /// Set once after row uid set was loaded or changed
