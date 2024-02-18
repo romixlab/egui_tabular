@@ -1,6 +1,6 @@
 use crate::backend::{OneShotFlags, PersistentFlags, TableBackend};
 use crate::cell::{CellCoord, CellKind, StaticCellKind, TableCell, TableCellRef};
-use crate::column::{Column, RequiredColumn};
+use crate::column::{BackendColumn, RequiredColumn};
 use crate::filter::RowFilter;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
@@ -22,7 +22,7 @@ struct State {
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
 
-    columns: HashMap<u32, Column>,
+    columns: HashMap<u32, BackendColumn>,
     status: IoStatus,
     cells: HashMap<CellCoord, TableCell>,
     row_uid: Vec<u32>,
@@ -72,7 +72,13 @@ impl CsvBackend {
             required_columns: required_columns.into_iter().collect(),
             separator: Default::default(),
             skip_first_rows: 0,
-            state: State::default(),
+            state: State {
+                one_shot_flags: OneShotFlags {
+                    first_pass: true,
+                    ..OneShotFlags::default()
+                },
+                ..State::default()
+            },
         }
     }
 
@@ -85,12 +91,11 @@ impl CsvBackend {
             .map(|(idx, c)| {
                 (
                     idx as u32,
-                    Column {
+                    BackendColumn {
                         name: c.name.clone(),
                         ty: c.ty,
-                        default: None,
+                        default_value: None,
                         kind: CellKind::Static(StaticCellKind::Plain),
-                        col_uid: idx as u32,
                     },
                 )
             })
@@ -139,12 +144,11 @@ impl CsvBackend {
                                 .map(|(idx, s)| {
                                     (
                                         idx as u32,
-                                        Column {
+                                        BackendColumn {
                                             name: s.to_owned(),
                                             ty: VariantTy::Str,
-                                            default: None,
+                                            default_value: None,
                                             kind: CellKind::Adhoc,
-                                            col_uid: idx as u32,
                                         },
                                     )
                                 })
@@ -166,7 +170,6 @@ impl CsvBackend {
                         return;
                     }
                 };
-                trace!("csv_to_coord: {csv_to_coord:?}");
                 for (row_idx, record) in records.enumerate() {
                     match record {
                         Ok(record) => {
@@ -199,6 +202,7 @@ impl CsvBackend {
         }
         self.state.status = IoStatus::Loaded(path);
         self.state.one_shot_flags.column_info_updated = true;
+        self.state.one_shot_flags.reloaded = true;
     }
 
     fn convert_cell_value(&self, col_idx: u32, value: &str) -> Variant {
@@ -242,13 +246,16 @@ impl CsvBackend {
         })
     }
 
-    fn map_columns(&self, csv_columns: Vec<&str>) -> (HashMap<u32, Column>, HashMap<usize, usize>) {
+    fn map_columns(
+        &self,
+        csv_columns: Vec<&str>,
+    ) -> (HashMap<u32, BackendColumn>, HashMap<usize, usize>) {
         let mut columns = HashMap::new();
         let mut csv_to_coord = HashMap::new();
 
         // Place required columns first, if match is not found in a loaded file - map to empty columns
         for (required_idx, required) in self.required_columns.iter().enumerate() {
-            if let Some(csv_idx) = required.find_match(&csv_columns) {
+            if let Some(csv_idx) = required.find_match_arr(&csv_columns) {
                 if csv_to_coord.contains_key(&csv_idx) {
                     warn!("Double match for column: {}", required.name);
                 } else {
@@ -258,15 +265,15 @@ impl CsvBackend {
 
             columns.insert(
                 required_idx as u32,
-                Column {
+                BackendColumn {
                     name: required.name.clone(),
                     ty: required.ty,
-                    default: None,
+                    default_value: None,
                     kind: CellKind::Static(StaticCellKind::Plain),
-                    col_uid: required_idx as u32,
                 },
             );
         }
+        trace!("csv_to_coord required: {csv_to_coord:?}");
 
         // Put all additional columns to the right of required ones
         let next_absent_idx = self.required_columns.len();
@@ -277,16 +284,16 @@ impl CsvBackend {
                 let col_idx = col_idx as u32;
                 columns.insert(
                     col_idx,
-                    Column {
+                    BackendColumn {
                         name: column.to_string(),
                         ty: VariantTy::Str,
-                        default: None,
+                        default_value: None,
                         kind: CellKind::Adhoc,
-                        col_uid: col_idx,
                     },
                 );
             }
         }
+        trace!("csv_to_coord all: {csv_to_coord:?}");
         (columns, csv_to_coord)
     }
 
@@ -326,11 +333,11 @@ impl TableBackend for CsvBackend {
         self.state.one_shot_flags = OneShotFlags::default();
     }
 
-    fn available_columns(&self) -> &HashMap<u32, Column> {
+    fn available_columns(&self) -> &HashMap<u32, BackendColumn> {
         &self.state.columns
     }
 
-    fn used_columns(&self) -> &HashMap<u32, Column> {
+    fn used_columns(&self) -> &HashMap<u32, BackendColumn> {
         &self.state.columns
     }
 
@@ -338,10 +345,6 @@ impl TableBackend for CsvBackend {
 
     fn row_count(&self) -> usize {
         self.state.row_uid.len()
-    }
-
-    fn row_uid_set(&self) -> Vec<u32> {
-        self.state.row_uid.clone()
     }
 
     fn row_uid(&self, monotonic_idx: usize) -> Option<u32> {
