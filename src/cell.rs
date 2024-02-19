@@ -1,5 +1,4 @@
 use rvariant::Variant;
-use std::fmt::{Display, Formatter};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -47,53 +46,79 @@ impl StaticCellKind {
         "This columns is not actually stored, but calculated from other local or global data";
 }
 
-// impl From<(Parameter, u32)> for Column {
-//     fn from((value, col_uid): (Parameter, u32)) -> Self {
-//         Column {
-//             name: value.name,
-//             ty: value.ty,
-//             default: value.default,
-//             kind: CellKind::Adhoc,
-//             col_uid,
-//         }
-//     }
-// }
-
-// impl<'a> From<(&'a Parameter, u32)> for Column {
-//     fn from((value, col_uid): (&Parameter, u32)) -> Self {
-//         Column {
-//             name: value.name.clone(),
-//             ty: value.ty,
-//             default: value.default.clone(),
-//             kind: CellKind::Adhoc,
-//             col_uid,
-//         }
-//     }
-// }
-
 /// row, col
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CellCoord(pub u32, pub u32);
 
-#[derive(Eq, PartialEq, Copy, Clone)]
-pub struct TableCellRef<'a> {
-    pub value: &'a Variant,
-    /// true if cell contains uncommitted data
-    pub is_dirty: bool,
+pub enum TableCellRef<'a> {
+    Never,
+    Empty,
+    Available {
+        value: &'a Variant,
+        /// true if cell contains uncommitted data
+        is_dirty: bool,
+        /// Cell was modified locally and then remotely as well
+        in_conflict: bool,
+    },
 }
 
-pub struct TableCell {
-    pub value: Variant,
-    /// true if cell contains uncommitted data
-    pub is_dirty: bool,
-    /// Cell was modified locally and then remotely as well
-    pub in_conflict: bool,
+impl<'a> TableCellRef<'a> {
+    pub fn get_if_str(&self) -> Option<&str> {
+        if let TableCellRef::Available { value, .. } = self {
+            if let Variant::Str(s) = value {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_if_string(&self) -> Option<String> {
+        if let TableCellRef::Available { value, .. } = self {
+            if let Variant::Str(s) = value {
+                Some(s.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_if_u32(&self) -> Option<u32> {
+        if let TableCellRef::Available { value, .. } = self {
+            if let Variant::U32(x) = value {
+                Some(*x)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, TableCellRef::Empty)
+    }
+}
+
+pub enum TableCell {
+    Never,
+    Available {
+        value: Variant,
+        /// true if cell contains uncommitted data
+        is_dirty: bool,
+        /// Cell was modified locally and then remotely as well
+        in_conflict: bool,
+    },
 }
 
 impl TableCell {
     pub fn new(value: Variant) -> Self {
-        TableCell {
+        TableCell::Available {
             value,
             is_dirty: false,
             in_conflict: false,
@@ -101,15 +126,17 @@ impl TableCell {
     }
 
     pub fn as_ref(&self) -> TableCellRef {
-        TableCellRef {
-            value: &self.value,
-            is_dirty: self.is_dirty,
+        match self {
+            TableCell::Never => TableCellRef::Never,
+            TableCell::Available {
+                value,
+                is_dirty,
+                in_conflict,
+            } => TableCellRef::Available {
+                value: &value,
+                is_dirty: *is_dirty,
+                in_conflict: *in_conflict,
+            },
         }
-    }
-}
-
-impl<'i> Display for TableCellRef<'i> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
     }
 }
