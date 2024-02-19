@@ -37,15 +37,24 @@ impl TableView {
                         continue;
                     };
                     for mono_col_idx in selected.col_start..=selected.col_end {
-                        let Some(col_uid) = self.state.columns.get(mono_col_idx).map(|u| u.col_uid)
+                        let Some(col_uid) = self
+                            .state
+                            .columns
+                            .get(mono_col_idx as usize)
+                            .map(|u| u.col_uid)
                         else {
                             continue;
                         };
-                        let cell_value = data
-                            .cell(CellCoord(row_uid, col_uid))
-                            .map(|v| v.value.to_string())
-                            .unwrap_or_default();
-                        text += cell_value.as_str();
+                        match data.cell(CellCoord(row_uid, col_uid)) {
+                            crate::cell::TableCellRef::Available { value, .. } => {
+                                if let Variant::Str(s) = value {
+                                    text += s.as_str();
+                                } else {
+                                    text += value.to_string().as_str();
+                                }
+                            }
+                            _ => {}
+                        }
                         if mono_col_idx != selected.col_end {
                             text += "\t";
                         }
@@ -87,20 +96,20 @@ impl TableView {
         if rows.is_empty() {
             return;
         }
-        self.state.pasting_block_width = rows[0].len();
+        self.state.pasting_block_width = rows[0].len() as u32;
         let is_equal_lengths =
             rows.iter()
                 .map(|c| c.len())
                 .tuple_windows()
                 .fold(0i32, |acc, (l1, l2)| {
-                    self.state.pasting_block_width = l1.max(l2);
+                    self.state.pasting_block_width = l1.max(l2) as u32;
                     acc + l1 as i32 - l2 as i32
                 })
                 == 0;
         self.state.pasting_block_with_holes = !is_equal_lengths;
 
         if let Some(selected_range) = &self.state.selected_range {
-            let selection_is_exact = rows.len() == selected_range.height()
+            let selection_is_exact = rows.len() == selected_range.height() as usize
                 && self.state.pasting_block_width == selected_range.width()
                 && is_equal_lengths;
             self.state.about_to_paste_rows = rows;
@@ -126,8 +135,8 @@ impl TableView {
         if self.state.about_to_paste_rows.is_empty() {
             return;
         }
-        let rows = self.state.about_to_paste_rows.len();
-        let cols = self.state.pasting_block_width;
+        let rows = self.state.about_to_paste_rows.len() as u32;
+        let cols = self.state.pasting_block_width as u32;
         let Some(selected_range) = self.state.selected_range else {
             return;
         };
@@ -198,7 +207,8 @@ impl TableView {
                     already_selected.move_left(key_navigation.shift);
                 }
                 if key_navigation.right {
-                    already_selected.move_right(key_navigation.shift, self.state.columns.len());
+                    already_selected
+                        .move_right(key_navigation.shift, self.state.columns.len() as u32);
                 }
                 if key_navigation.up {
                     already_selected.move_up(key_navigation.shift);
@@ -264,9 +274,9 @@ impl TableView {
             .collect();
 
         if self.state.create_rows_on_paste
-            && self.state.about_to_paste_rows.len() > selected_range.height()
+            && self.state.about_to_paste_rows.len() > selected_range.height() as usize
         {
-            for _ in 0..self.state.about_to_paste_rows.len() - selected_range.height() {
+            for _ in 0..self.state.about_to_paste_rows.len() - selected_range.height() as usize {
                 row_ids.push(data.create_row(HashMap::new()));
             }
         }
@@ -275,7 +285,7 @@ impl TableView {
             .map(|mono_col_idx| {
                 self.state
                     .columns
-                    .get(mono_col_idx + selected_range.col_start)
+                    .get((mono_col_idx + selected_range.col_start) as usize)
                     .map(|col| (col.col_uid, col.ty))
             })
             .collect();
