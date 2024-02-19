@@ -2,16 +2,13 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 
-use egui::{
-    Align, Color32, Frame, Id, Key, Label, Layout, RichText, ScrollArea, Sense, TextFormat, Ui,
-    Vec2,
-};
+use egui::{Align, Color32, Frame, Id, Key, Label, Layout, RichText, ScrollArea, Sense, Ui, Vec2};
 use egui_modal::Modal;
 use itertools::Itertools;
 use log::{debug, warn};
 
 use crate::backend::TableBackend;
-use crate::cell::{CellCoord, CellKind, StaticCellKind};
+use crate::cell::{CellCoord, CellKind, StaticCellKind, TableCellRef};
 use crate::column::RequiredColumn;
 use crate::filter::{FilterOperation, RowFilter, VariantFilter};
 use rvariant::{Variant, VariantTy};
@@ -22,14 +19,20 @@ mod cell_view;
 mod table;
 use table::{Column, SelectedRange, TableBody};
 
+use self::cell_view::CellMetadata;
+use self::interface::{
+    CustomEditUiFn, CustomEditUiResponse, CustomToolUiFn, CustomUiFn, CustomUiResponse, Lint,
+};
 use self::widgets::flag_label;
 mod interaction;
+pub mod interface;
 #[allow(dead_code)]
 mod layout;
 #[allow(dead_code)]
 mod sizing;
 mod util;
 mod widgets;
+pub use interface::{PersistentSettings, Settings};
 
 pub struct TableView {
     id: String,
@@ -46,79 +49,23 @@ pub struct TableView {
     custom_edit_ui: HashMap<u32, CustomEditUiFn>,
 }
 
-// TODO: column ty conversion dropdown
-// TODO: kind change changes cell holes somehow
-#[derive(Default)]
-pub struct Settings {
-    pub skippable_rows: bool,
-    pub skippable_columns: bool,
-    pub editable_column_names: bool,
-
-    /// Whether cells can be edited and rows added / removed
-    pub editable_cells: bool,
-    /// Whether column types / names can be changed
-    pub editable_columns: bool,
-    pub commit_on_edit: bool,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct PersistentSettings {
-    loose_column_order: Vec<String>,
-    row_height: f32,
-    show_column_types: bool,
-}
-
-impl Default for PersistentSettings {
-    fn default() -> Self {
-        PersistentSettings {
-            loose_column_order: vec![],
-            row_height: 24.0,
-            show_column_types: true,
-        }
-    }
-}
-
-pub type CustomUiFn = fn(
-    row_uid: u32,
-    cell_value: &Variant,
-    state: &mut Variant,
-    ui: &mut Ui,
-) -> Option<CustomUiResponse>;
-pub type CustomToolUiFn = fn(row_uid: u32, &mut Variant, &mut Ui) -> Option<CustomUiResponse>;
-
-// TODO: Switch to numbers + consts instead?
-#[derive(Clone, Debug)]
-pub enum CustomUiResponse {
-    UserEventI32(u32, i32),
-    UserEventU32(u32, u32),
-    UserEventString(u32, String),
-}
-
-pub type CustomEditUiFn =
-    fn(u32, &mut Variant, &mut Variant, &mut Ui) -> Option<CustomEditUiResponse>;
-
-pub enum CustomEditUiResponse {
-    UpdateCell(Variant),
-    CustomUiResponse(CustomUiResponse),
-}
-
 #[derive(Default)]
 struct State {
     columns: Vec<UiColumn>,
     cell_metadata: HashMap<CellCoord, CellMetadata>,
     rows_skip: HashMap<u32, bool>,
 
-    last_pressed: Option<(usize, usize)>,
+    last_pressed: Option<(u32, u32)>,
     cell_when_editing: Option<Variant>,
     save_cell_changes_and_deselect: bool, // TODO: improve and keep coords of currently editing cell, instead of deferring to ui loop to commit changes?
     discard_cell_changes_and_deselect: bool,
     // dirty_cell: Option<(usize, usize)>,
     selected_range: Option<SelectedRange>,
 
-    disabled_row: Option<usize>,
-    enabled_row: Option<usize>,
-    disabled_col: Option<usize>,
-    enabled_col: Option<usize>,
+    disabled_row: Option<u32>,
+    enabled_row: Option<u32>,
+    disabled_col: Option<u32>,
+    enabled_col: Option<u32>,
 
     custom_ui_response: Option<(CellCoord, CustomUiResponse)>,
     custom_ui_state: HashMap<CellCoord, Variant>,
@@ -127,48 +74,16 @@ struct State {
     tool_ui_response: Option<(u32, CustomUiResponse)>,
 
     filter_value_text: String,
-    scroll_to_row: Option<usize>,
+    scroll_to_row: Option<u32>,
 
     about_to_paste_rows: Vec<Vec<String>>,
     pasting_block_with_holes: bool,
-    pasting_block_width: usize,
+    pasting_block_width: u32,
     create_rows_on_paste: bool,
     fill_with_same_on_paste: bool,
     create_adhoc_cols_on_paste: bool,
 
     clear_requested: bool,
-}
-
-#[derive(Default)]
-pub struct CellMetadata {
-    pub lints: Vec<Lint>,
-    pub tooltip: String,
-}
-
-impl CellMetadata {
-    pub fn from_lint(lint: Lint) -> Self {
-        Self {
-            lints: vec![lint],
-            tooltip: String::new(),
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum Lint {
-    Color,
-    /// Highlight string range
-    HighlightRange,
-    /// Highlight one of the items of StrList or other array-like Variants
-    HighlightIndex {
-        idx: usize,
-        text_format: TextFormat,
-    },
-    AddButton,
-    AddIcon {
-        color: Color32,
-        icon: &'static str,
-    },
 }
 
 #[derive(Clone, Debug)]
@@ -281,26 +196,28 @@ impl TableView {
         }
     }
 
-    pub fn set_settings(&mut self, settings: Settings) {
-        self.settings = settings;
-    }
-
     pub fn show(&mut self, data: &mut impl TableBackend, ui: &mut Ui) {
         // if !data.flags().column_info_present {
         //     ui.label("Empty table");
         //     return;
         // }
+        if data.one_shot_flags().cleared {
+            // self.state.cell_metadata.clear();
+            self.state = State::default();
+        }
         if data.one_shot_flags().first_pass || data.one_shot_flags().column_info_updated {
             self.map_columns(data);
-        }
-        if data.one_shot_flags().cleared {
-            self.state.cell_metadata.clear();
         }
         data.poll();
         // if self.state.columns.is_empty() {
         //     ui.label("TableView: Empty table");
         //     return;
         // }
+
+        self.state.disabled_col = None;
+        self.state.enabled_col = None;
+        self.state.disabled_row = None;
+        self.state.enabled_row = None;
 
         let mut modal = Modal::new(ui.ctx(), "table_view_modal").with_close_on_outside_click(false);
         let is_empty_table = data.row_count() == 0;
@@ -364,11 +281,11 @@ impl TableView {
                                                 if ui_column.recognized {
                                                     ui.colored_label(Color32::LIGHT_GREEN, "✔").on_hover_text("Column is recognized and picked up for additional checks or processing.");
                                                 }
-                                                if self.settings.skippable_columns && !required_column {
-                                                    if ui.checkbox(&mut ui_column.skip, "Skip").changed() && ui_column.skip {
-                                                        self.state.disabled_col = Some(idx);
+                                                if self.settings.skippable_columns && !required_column && ui.checkbox(&mut ui_column.skip, "Skip").changed() {
+                                                    if ui_column.skip {
+                                                        self.state.disabled_col = Some(idx as u32);
                                                     } else {
-                                                        self.state.enabled_col = Some(idx);
+                                                        self.state.enabled_col = Some(idx as u32);
                                                     }
                                                 }
                                             });
@@ -401,7 +318,7 @@ impl TableView {
                 table_builder
             };
             for h in &self.state.columns {
-                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 60.0).at_least(36.0).clip(true));
+                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 80.0).at_least(36.0).clip(true));
             }
             let mut table_builder = table_builder
                 .header(24.0, |mut row| {
@@ -598,6 +515,7 @@ impl TableView {
                 };
                 let row_skip = self.state.rows_skip.entry(row_uid).or_default();
                 for (monotonic_col_idx, ui_column) in self.state.columns.iter().enumerate() {
+                    let monotonic_col_idx = monotonic_col_idx as u32;
                     if ui_column.is_tool {
                         let hovered = ui_row.hovered();
                         ui_row.col(|ui| {
@@ -615,7 +533,7 @@ impl TableView {
                                     data.remove_rows(vec![row_uid]);
                                 }
 
-                                let table_view_tool_state = self.state.tool_ui_state.entry((row_uid as i32).neg()).or_default();
+                                let table_view_tool_state = self.state.tool_ui_state.entry((row_uid as i32).neg()).or_insert(Variant::Empty);
                                 let row_flagged = *table_view_tool_state == Variant::Bool(true);
                                 if (hovered || row_flagged) && ui.add(flag_label(row_flagged).sense(Sense::click())).clicked() {
                                     *table_view_tool_state = Variant::Bool(!row_flagged);
@@ -623,7 +541,7 @@ impl TableView {
 
                                 if hovered {
                                     if let Some(tool_ui) = &mut self.tool_ui {
-                                        let r = tool_ui(row_uid, self.state.tool_ui_state.entry(row_uid as i32).or_default(), ui);
+                                        let r = tool_ui(row_uid, self.state.tool_ui_state.entry(row_uid as i32).or_insert(Variant::Empty), ui);
                                         if let Some(r) = r {
                                             self.state.tool_ui_response = Some((row_uid, r));
                                         }
@@ -637,131 +555,107 @@ impl TableView {
                     let cell_uid_coord = CellCoord(row_uid, ui_column.col_uid);
                     ui_row.col(|ui| {
                         let skip = *row_skip || col_skip;
-                        if let Some(cell_ref) = data.cell(cell_uid_coord) {
-                            match VariantTy::from(cell_ref.value) {
-                                VariantTy::Empty if !skip => {
-                                    if cell_edit::add_and_select_missing_cell(
-                                        self.settings.editable_cells,
-                                        ui,
-                                    ) {
-                                        self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
-                                        data.create_one(cell_uid_coord, Variant::Str(String::new()));
+                        match data.cell(cell_uid_coord) {
+                            TableCellRef::Available { value, .. } => {
+                                if skip {
+                                    ui.colored_label(
+                                        Color32::DARK_GRAY,
+                                        RichText::new(value.to_string()).strikethrough(),
+                                    );
+                                } else if self.settings.editable_cells
+                                    && self.state.selected_range == Some(SelectedRange::single(row_idx, monotonic_col_idx))
+                                    && !ui_column.is_read_only()
+                                {
+                                    let mut first_pass = false;
+                                    if self.state.cell_when_editing.is_none() {
+                                        first_pass = true;
+                                        self.state.cell_when_editing = Some(value.clone());
                                     }
-                                    return;
-                                }
-                                VariantTy::Never => {
-                                    // TODO: draw hatched grid
-                                    ui.label("_Never_");
-                                    return;
-                                }
-                                _ => {}
-                            }
-                            let cell_text = format!("{}", cell_ref);
-                            if skip {
-                                ui.colored_label(
-                                    Color32::DARK_GRAY,
-                                    RichText::new(cell_text).strikethrough(),
-                                );
-                            } else if self.settings.editable_cells
-                                && self.state.selected_range == Some(SelectedRange::single(row_idx, monotonic_col_idx))
-                                && !ui_column.is_read_only()
-                            {
-                                let mut first_pass = false;
-                                if self.state.cell_when_editing.is_none() {
-                                    first_pass = true;
-                                    self.state.cell_when_editing = Some(cell_ref.value.clone());
-                                }
-                                let changed_value = if self.state.save_cell_changes_and_deselect || self.state.discard_cell_changes_and_deselect {
-                                    self.state.selected_range = None;
-                                    self.state.last_pressed = None;
-                                    if self.state.save_cell_changes_and_deselect {
-                                        self.state.save_cell_changes_and_deselect = false;
-                                        self.state.cell_when_editing.take()
-                                    } else {
-                                        self.state.cell_when_editing = None;
-                                        self.state.discard_cell_changes_and_deselect = false;
-                                        None
-                                    }
-                                } else {
-                                    let cell_when_editing =
-                                        self.state.cell_when_editing.as_mut().expect("");
-                                    if let Some(custom_editor) = ui_column.custom_edit_ui {
-                                        let state = self.state.custom_ui_state.entry(cell_uid_coord).or_default();
-                                        if let Some(action) = custom_editor(row_uid, cell_when_editing, state, ui) {
-                                            match action {
-                                                CustomEditUiResponse::UpdateCell(value) => Some(value),
-                                                CustomEditUiResponse::CustomUiResponse(response) => {
-                                                    self.state.custom_ui_response = Some((cell_uid_coord, response));
-                                                    None
-                                                }
-                                            }
+                                    let changed_value = if self.state.save_cell_changes_and_deselect || self.state.discard_cell_changes_and_deselect {
+                                        self.state.selected_range = None;
+                                        self.state.last_pressed = None;
+                                        if self.state.save_cell_changes_and_deselect {
+                                            self.state.save_cell_changes_and_deselect = false;
+                                            self.state.cell_when_editing.take()
                                         } else {
+                                            self.state.cell_when_editing = None;
+                                            self.state.discard_cell_changes_and_deselect = false;
                                             None
                                         }
                                     } else {
-                                        cell_edit::show_cell_editor(
-                                            row_uid,
-                                            cell_when_editing,
-                                            first_pass,
-                                            ui_column,
-                                            ui,
-                                        )
+                                        let cell_when_editing =
+                                            self.state.cell_when_editing.as_mut().expect("");
+                                        if let Some(custom_editor) = ui_column.custom_edit_ui {
+                                            let state = self.state.custom_ui_state.entry(cell_uid_coord).or_insert(Variant::Empty);
+                                            if let Some(action) = custom_editor(row_uid, cell_when_editing, state, ui) {
+                                                match action {
+                                                    CustomEditUiResponse::UpdateCell(value) => Some(value),
+                                                    CustomEditUiResponse::CustomUiResponse(response) => {
+                                                        self.state.custom_ui_response = Some((cell_uid_coord, response));
+                                                        None
+                                                    }
+                                                }
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            cell_edit::show_cell_editor(
+                                                row_uid,
+                                                cell_when_editing,
+                                                first_pass,
+                                                ui_column,
+                                                ui,
+                                            )
+                                        }
+                                    };
+                                    if let Some(changed_value) = changed_value {
+                                        if &changed_value != value {
+                                            debug!("updating cell {cell_uid_coord:?} with new value: {changed_value} ty: {}", VariantTy::from(&changed_value));
+                                            data.modify_one(
+                                                cell_uid_coord,
+                                                changed_value,
+                                            );
+                                        }
+                                        self.state.cell_when_editing = None;
+                                        self.state.selected_range = None;
                                     }
-                                };
-                                if let Some(changed_value) = changed_value {
-                                    if &changed_value != cell_ref.value {
-                                        debug!("updating cell {cell_uid_coord:?} with new value: {changed_value} ty: {}", VariantTy::from(&changed_value));
-                                        data.modify_one(
-                                            cell_uid_coord,
-                                            changed_value,
-                                        );
-                                        data.one_shot_flags_mut().cells_updated = vec![cell_uid_coord];
-                                        // self.state.dirty_cell = Some((row_idx, monotonic_col_idx));
-                                    }
-                                    self.state.cell_when_editing = None;
-                                    self.state.selected_range = None;
-                                }
-                            } else {
-                                let has_correct_type = VariantTy::from(cell_ref.value) == ui_column.ty;
-                                if has_correct_type && !cell_text.is_empty() {
+                                } else {
                                     match ui_column.custom_ui {
                                         Some(custom) => {
-                                            let state = self.state.custom_ui_state.entry(cell_uid_coord).or_default();
-                                            if let Some(response) = custom(row_uid, cell_ref.value, state, ui) {
+                                            let state = self.state.custom_ui_state.entry(cell_uid_coord).or_insert(Variant::Empty);
+                                            if let Some(response) = custom(row_uid, value, state, ui) {
                                                 self.state.custom_ui_response = Some((cell_uid_coord, response));
                                             }
                                         },
                                         None => cell_view::show_cell(
                                             self.state.cell_metadata.get(&cell_uid_coord),
                                             ui,
-                                            cell_ref.value,
-                                            &cell_text,
+                                            value,
                                         )
                                     }
-                                } else if cell_text.is_empty() {
-                                    if !has_correct_type {
-                                        ui.colored_label(ui.ctx().style().visuals.warn_fg_color, "Incorrect");
+                                    let has_correct_type = VariantTy::from(value) == ui_column.ty;
+                                    if !has_correct_type && ui.ui_contains_pointer() {
+                                        egui::show_tooltip(
+                                            ui.ctx(),
+                                            "tableview_incorrect_data_tooltip".into(),
+                                            |ui| {
+                                                ui.label("Incorrect value for the required data type");
+                                            },
+                                        );
                                     }
-                                } else {
-                                    ui.colored_label(ui.ctx().style().visuals.warn_fg_color, cell_text.as_str());
-                                };
-                                if ui.ui_contains_pointer() && !has_correct_type {
-                                    egui::show_tooltip(
-                                        ui.ctx(),
-                                        "tableview_incorrect_data_tooltip".into(),
-                                        |ui| {
-                                            ui.label("Incorrect value for the required data type");
-                                        },
-                                    );
                                 }
                             }
-                        } else {
-                            if cell_edit::add_and_select_missing_cell(
-                                self.settings.editable_cells,
-                                ui,
-                            ) {
-                                self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
-                                data.create_one(cell_uid_coord, Variant::Str(String::new()));
+                            TableCellRef::Empty => {
+                                if !skip && cell_edit::add_and_select_missing_cell(
+                                        self.settings.editable_cells,
+                                        ui,
+                                    ) {
+                                    self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
+                                    data.create_one(cell_uid_coord, Variant::Str(String::new()));
+                                }
+                            }
+                            TableCellRef::Never => {
+                                ui.label("TODO: hatch cell");
                             }
                         }
                     });
@@ -871,100 +765,5 @@ impl TableView {
             self.state.columns.push(column);
         }
         debug!("mapped columns: {:?}", &self.state.columns);
-    }
-
-    pub fn custom_ui_state(&self, uid_coord: CellCoord) -> Option<&Variant> {
-        self.state.custom_ui_state.get(&uid_coord)
-    }
-
-    pub fn custom_ui_state_for(
-        &self,
-        col_uid: u32,
-        allow_empty: bool,
-    ) -> Vec<(CellCoord, Variant)> {
-        let mut values = vec![];
-        for (coord, value) in &self.state.custom_ui_state {
-            if coord.1 != col_uid {
-                continue;
-            }
-            if allow_empty || !value.is_empty() {
-                values.push((*coord, value.clone()));
-            }
-        }
-        values
-    }
-
-    pub fn set_custom_ui_state(&mut self, uid_coord: CellCoord, value: Variant) {
-        self.state.custom_ui_state.insert(uid_coord, value);
-    }
-
-    pub fn clear_custom_ui_state_for(&mut self, col_uid: u32) {
-        for (coord, value) in self.state.custom_ui_state.iter_mut() {
-            if coord.1 == col_uid {
-                *value = Variant::Empty;
-            }
-        }
-    }
-
-    pub fn take_custom_ui_response(&mut self) -> Option<(CellCoord, CustomUiResponse)> {
-        // for (coord, response) in self.state.custom_ui_responses.drain() {
-        //     f(coord, response);
-        // }
-        self.state.custom_ui_response.take()
-    }
-
-    pub fn add_tool_ui(&mut self, tool_ui: CustomToolUiFn) {
-        self.tool_ui = Some(tool_ui);
-    }
-
-    pub fn take_tool_ui_response(&mut self) -> Option<(u32, CustomUiResponse)> {
-        self.state.tool_ui_response.take()
-    }
-
-    pub fn add_cell_lint(&mut self, coord: CellCoord, lint: Lint) {
-        let lints = &mut self.state.cell_metadata.entry(coord).or_default().lints;
-        if !lints.contains(&lint) {
-            lints.push(lint);
-        }
-    }
-
-    pub fn add_cell_tooltip(&mut self, coord: CellCoord, tooltip: impl AsRef<str>) {
-        self.state.cell_metadata.entry(coord).or_default().tooltip = tooltip.as_ref().to_string();
-    }
-
-    pub fn clear_cell_lints(&mut self, coord: CellCoord) {
-        self.state.cell_metadata.entry(coord).and_modify(|m| {
-            m.tooltip.clear();
-            m.lints.clear();
-        });
-    }
-
-    pub fn load_state(&mut self, state: PersistentSettings) {
-        self.persistent_settings = state;
-    }
-
-    pub fn save_state(&self) -> PersistentSettings {
-        PersistentSettings {
-            loose_column_order: self.state.columns.iter().map(|c| c.name.clone()).collect(),
-            ..self.persistent_settings
-        }
-    }
-
-    pub fn set_custom_ui(&mut self, col_id: u32, ui: CustomUiFn) {
-        self.custom_ui.insert(col_id, ui);
-    }
-
-    pub fn set_custom_edit_ui(&mut self, col_id: u32, ui: CustomEditUiFn) {
-        self.custom_edit_ui.insert(col_id, ui);
-    }
-
-    pub fn set_recognized(&mut self, col_id: u32, recognized: bool) {
-        if let Some(column) = self.state.columns.iter_mut().find(|c| c.col_uid == col_id) {
-            column.recognized = recognized;
-        }
-    }
-
-    pub fn scroll_to_row(&mut self, monotonic_row_idx: usize) {
-        self.state.scroll_to_row = Some(monotonic_row_idx);
     }
 }

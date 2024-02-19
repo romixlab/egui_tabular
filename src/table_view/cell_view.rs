@@ -1,22 +1,29 @@
+use std::rc::Rc;
+
 use egui::text::LayoutJob;
 use egui::{Label, TextFormat, Ui};
 
 use rvariant::Variant;
 
-use crate::table_view::{CellMetadata, Lint};
+use crate::table_view::Lint;
 
-pub(super) fn show_cell(
-    metadata: Option<&CellMetadata>,
-    ui: &mut Ui,
-    cell_value: &Variant,
-    cell_text: &String,
-) {
+#[derive(Default)]
+pub(crate) struct CellMetadata {
+    pub(crate) lints: Vec<Lint>,
+    // TODO: allow tooltips for individuals elements?
+    pub(crate) tooltips: Vec<Rc<String>>,
+    pub(crate) text_format: Option<TextFormat>,
+}
+
+pub(super) fn show_cell(metadata: Option<&CellMetadata>, ui: &mut Ui, cell_value: &Variant) {
     let mut job = LayoutJob::default();
-    // TODO: allow tooltips for individuals elements
-    // ui.horizontal_wrapped(|ui| {
-    //
-    // });
+    let text_format = metadata
+        .and_then(|m| m.text_format.clone())
+        .unwrap_or_default();
     match cell_value {
+        Variant::Str(s) => {
+            job.append(s, 0.0, text_format);
+        }
         Variant::StrList(list) => {
             for (idx, s) in list.iter().enumerate() {
                 let format = metadata
@@ -39,7 +46,7 @@ pub(super) fn show_cell(
                 job.append(s, 0.0, format);
                 if idx < list.len() - 1 {
                     let separator = if s.len() > 10 { "\n" } else { ", " };
-                    job.append(separator, 0.0, TextFormat::default());
+                    job.append(separator, 0.0, text_format.clone());
                 }
             }
         }
@@ -49,14 +56,14 @@ pub(super) fn show_cell(
         //         job.append("\n", 0.0, TextFormat::default());
         //     }
         // }
-        _ => {
-            job.append(cell_text, 0.0, TextFormat::default());
+        other => {
+            job.append(other.to_string().as_str(), 0.0, text_format);
         }
     }
     ui.horizontal_wrapped(|ui| {
         // ui.label(job);
         ui.add(Label::new(job).selectable(false)).on_hover_ui(|ui| {
-            ui.label(cell_text);
+            ui.label(cell_value.to_string());
         });
         if let Some(m) = metadata {
             for (color, icon) in m.lints.iter().filter_map(|l| {
@@ -70,9 +77,13 @@ pub(super) fn show_cell(
             }
         }
     });
-    if let Some(tooltip) = metadata.map(|m| m.tooltip.as_str()) {
-        if !tooltip.is_empty() && ui.rect_contains_pointer(ui.max_rect()) {
-            egui::show_tooltip_text(ui.ctx(), egui::Id::new("show_cell_tooltip"), tooltip);
+    if let Some(m) = metadata {
+        if !m.tooltips.is_empty() && ui.rect_contains_pointer(ui.max_rect()) {
+            egui::show_tooltip(ui.ctx(), egui::Id::new("show_cell_tooltip"), |ui| {
+                for t in &m.tooltips {
+                    ui.label(t.as_str());
+                }
+            });
         }
     }
     // let warnings = metadata.map(|m| &m.warnings);

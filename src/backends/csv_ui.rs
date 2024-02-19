@@ -5,7 +5,7 @@ use strum::IntoEnumIterator;
 
 pub struct CsvBackendUi {
     state: PersistentState,
-    picked_path: Option<PathBuf>,
+    picked_file: Option<PathBuf>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -29,7 +29,7 @@ impl CsvBackendUi {
     pub fn new() -> Self {
         CsvBackendUi {
             state: PersistentState::default(),
-            picked_path: None,
+            picked_file: None,
         }
     }
 
@@ -39,7 +39,7 @@ impl CsvBackendUi {
 
             if ui.button("Open file…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.picked_path = Some(path);
+                    self.picked_file = Some(path);
                     self.try_load(csv_backend);
                 }
             }
@@ -87,7 +87,7 @@ impl CsvBackendUi {
     }
 
     fn try_load(&mut self, csv_backend: &mut CsvBackend) {
-        let Some(path) = self.picked_path.clone() else {
+        let Some(path) = self.picked_file.clone() else {
             return;
         };
         csv_backend.set_separator(self.state.separator);
@@ -97,5 +97,9 @@ impl CsvBackendUi {
 
     pub fn has_warnings(&self) -> bool {
         false
+    }
+
+    pub fn picked_file(&self) -> Option<PathBuf> {
+        self.picked_file.clone()
     }
 }

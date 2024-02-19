@@ -100,7 +100,7 @@ pub(super) fn add_and_select_missing_cell(is_edit_mode: bool, ui: &mut Ui) -> bo
         "No data, enable edit mode and add."
     };
     if ui.ui_contains_pointer() {
-        egui::show_tooltip(ui.ctx(), "csv_importer_missing_data_tooltip".into(), |ui| {
+        egui::show_tooltip(ui.ctx(), "table_view_missing_data_tooltip".into(), |ui| {
             ui.label(tooltip_text);
         });
     }
