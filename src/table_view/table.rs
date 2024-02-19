@@ -155,14 +155,14 @@ fn to_sizing(columns: &[Column]) -> super::sizing::Sizing {
 /// All indices are from 0 to row or column count currently in view
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct SelectedRange {
-    pub row_start: usize,
-    pub col_start: usize,
-    pub row_end: usize,
-    pub col_end: usize,
+    pub row_start: u32,
+    pub col_start: u32,
+    pub row_end: u32,
+    pub col_end: u32,
 }
 
 impl SelectedRange {
-    pub fn single(mono_row: usize, mono_col: usize) -> Self {
+    pub fn single(mono_row: u32, mono_col: u32) -> Self {
         SelectedRange {
             row_start: mono_row,
             col_start: mono_col,
@@ -172,10 +172,10 @@ impl SelectedRange {
     }
 
     pub fn ordered(
-        mono_row_start: usize,
-        mono_col_start: usize,
-        mono_row_end: usize,
-        mono_col_end: usize,
+        mono_row_start: u32,
+        mono_col_start: u32,
+        mono_row_end: u32,
+        mono_col_end: u32,
     ) -> Self {
         SelectedRange {
             row_start: mono_row_start.min(mono_row_end),
@@ -189,11 +189,11 @@ impl SelectedRange {
         self.row_start == self.row_end && self.col_start == self.col_end
     }
 
-    pub fn width(&self) -> usize {
+    pub fn width(&self) -> u32 {
         self.col_end - self.col_start + 1
     }
 
-    pub fn height(&self) -> usize {
+    pub fn height(&self) -> u32 {
         self.row_end - self.row_start + 1
     }
 
@@ -206,7 +206,7 @@ impl SelectedRange {
         }
     }
 
-    pub fn move_right(&mut self, extend: bool, max: usize) {
+    pub fn move_right(&mut self, extend: bool, max: u32) {
         if self.col_end == max {
             return;
         }
@@ -225,7 +225,7 @@ impl SelectedRange {
         }
     }
 
-    pub fn move_down(&mut self, extend: bool, max: usize) {
+    pub fn move_down(&mut self, extend: bool, max: u32) {
         if self.row_end == max {
             return;
         }
@@ -241,7 +241,7 @@ impl SelectedRange {
 struct TableScrollOptions {
     vscroll: bool,
     stick_to_bottom: bool,
-    scroll_to_row: Option<(usize, Option<Align>)>,
+    scroll_to_row: Option<(u32, Option<Align>)>,
     scroll_offset_y: Option<f32>,
     min_scrolled_height: f32,
     max_scroll_height: f32,
@@ -371,7 +371,7 @@ impl<'a> TableBuilder<'a> {
     /// If `align` is `None`, the table will scroll just enough to bring the cursor into view.
     ///
     /// See also: [`Self::vertical_scroll_offset`].
-    pub fn scroll_to_row(mut self, row: usize, align: Option<Align>) -> Self {
+    pub fn scroll_to_row(mut self, row: u32, align: Option<Align>) -> Self {
         self.scroll_options.scroll_to_row = Some((row, align));
         self
     }
@@ -844,12 +844,12 @@ pub struct TableBody<'a> {
     max_used_widths: &'a mut [f32],
 
     striped: bool,
-    row_nr: usize,
+    row_nr: u32,
     start_y: f32,
     end_y: f32,
 
     /// Look for this row to scroll to.
-    scroll_to_row: Option<usize>,
+    scroll_to_row: Option<u32>,
 
     /// If we find the correct row to scroll to,
     /// this is set to the y-range of the row.
@@ -860,8 +860,8 @@ pub struct TableBody<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum SelectionEvent {
-    Pressed(usize, usize),
-    Released(usize, usize),
+    Pressed(u32, u32),
+    Released(u32, u32),
 }
 
 impl<'a> TableBody<'a> {
@@ -941,9 +941,9 @@ impl<'a> TableBody<'a> {
     pub fn rows(
         mut self,
         row_height_sans_spacing: f32,
-        total_rows: usize,
+        total_rows: u32,
         enable_hover_and_clicks: bool,
-        mut add_row_content: impl FnMut(usize, TableRow<'_, '_>),
+        mut add_row_content: impl FnMut(u32, TableRow<'_, '_>),
     ) -> Option<SelectionEvent> {
         let spacing = self.layout.ui.spacing().item_spacing;
         let row_height_with_spacing = row_height_sans_spacing + spacing.y;
@@ -963,12 +963,11 @@ impl<'a> TableBody<'a> {
         let mut min_row = 0;
 
         if scroll_offset_y > 0.0 {
-            min_row = (scroll_offset_y / row_height_with_spacing).floor() as usize;
+            min_row = (scroll_offset_y / row_height_with_spacing).floor() as u32;
             self.add_buffer(min_row as f32 * row_height_with_spacing);
         }
 
-        let max_row =
-            ((scroll_offset_y + max_height) / row_height_with_spacing).ceil() as usize + 1;
+        let max_row = ((scroll_offset_y + max_height) / row_height_with_spacing).ceil() as u32 + 1;
         let max_row = max_row.min(total_rows);
 
         // let pointer_wanted = self.layout.ui.ctx().wants_pointer_input();
@@ -989,7 +988,7 @@ impl<'a> TableBody<'a> {
             let mut col_hovered = None;
             for (idx, w) in self.widths.iter().enumerate() {
                 if pointer.x >= col_x_start && pointer.x <= col_x_start + w {
-                    col_hovered = Some(idx);
+                    col_hovered = Some(idx as u32);
                     break;
                 }
                 col_x_start += w + spacing.x;
@@ -1211,11 +1210,11 @@ pub struct TableRow<'a, 'b> {
     widths: &'b [f32],
     /// grows during building with the maximum widths
     max_used_widths: &'b mut [f32],
-    col_index: usize,
+    col_index: u32,
     striped: bool,
     row_hovered: bool,
-    col_hovered: Option<usize>,
-    cols_selected: Option<RangeInclusive<usize>>,
+    col_hovered: Option<u32>,
+    cols_selected: Option<RangeInclusive<u32>>,
     height: f32,
 }
 
@@ -1227,9 +1226,12 @@ impl<'a, 'b> TableRow<'a, 'b> {
     pub fn col(&mut self, add_cell_contents: impl FnOnce(&mut Ui)) -> (Rect, Response) {
         let col_index = self.col_index;
 
-        let clip = self.columns.get(col_index).map_or(false, |c| c.clip);
+        let clip = self
+            .columns
+            .get(col_index as usize)
+            .map_or(false, |c| c.clip);
 
-        let width = if let Some(width) = self.widths.get(col_index) {
+        let width = if let Some(width) = self.widths.get(col_index as usize) {
             self.col_index += 1;
             *width
         } else {
@@ -1282,7 +1284,7 @@ impl<'a, 'b> TableRow<'a, 'b> {
         //     );
         // }
 
-        if let Some(max_w) = self.max_used_widths.get_mut(col_index) {
+        if let Some(max_w) = self.max_used_widths.get_mut(col_index as usize) {
             *max_w = max_w.max(used_rect.width());
         }
 
