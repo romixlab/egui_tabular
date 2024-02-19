@@ -29,24 +29,24 @@ pub trait TableBackend {
     /// Returns actually used columns, unused data is e.g. not sent over the network.
     fn used_columns(&self) -> &HashMap<u32, BackendColumn>;
     /// Choose whether to use a certain column or not.
-    fn use_column(&mut self, col_uid: usize, is_used: bool);
+    fn use_column(&mut self, col_uid: u32, is_used: bool);
     // Choose whether to use certain columns or not.
     // fn use_columns(&mut self, cols: impl Iterator<Item = (usize, bool)>);
 
     /// Returns total row count.
-    fn row_count(&self) -> usize;
+    fn row_count(&self) -> u32;
     // Get unique IDs of all rows
     // fn row_uid_set(&self) -> Vec<u32>;
     /// Map index from 0..row_count() range to external data source row id
-    fn row_uid(&self, monotonic_idx: usize) -> Option<u32>;
+    fn row_uid(&self, monotonic_idx: u32) -> Option<u32>;
     /// Map unique row id back into monotonic index, if it is in the current view.
     /// Can be used to jump to another row.
-    fn row_monotonic(&self, row_uid: u32) -> Option<usize>;
+    fn row_monotonic(&self, row_uid: u32) -> Option<u32>;
 
     /// Get cell value if available, remember to load it otherwise.
     /// Remember to map monotonic indices to uid through row_uid() method.
     /// Columns are also uid's, can directly use what's in the available_columns() hashmap
-    fn cell(&mut self, cell: CellCoord) -> Option<TableCellRef>;
+    fn cell(&mut self, cell: CellCoord) -> TableCellRef;
     fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);

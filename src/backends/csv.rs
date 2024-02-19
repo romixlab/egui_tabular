@@ -180,7 +180,7 @@ impl CsvBackend {
                                 let value = self.convert_cell_value(col_idx, field);
                                 self.state.cells.insert(
                                     CellCoord(row_idx as u32, col_idx),
-                                    TableCell {
+                                    TableCell::Available {
                                         value,
                                         is_dirty: false,
                                         in_conflict: false,
@@ -341,37 +341,46 @@ impl TableBackend for CsvBackend {
         &self.state.columns
     }
 
-    fn use_column(&mut self, _col: usize, _is_used: bool) {}
+    fn use_column(&mut self, _col: u32, _is_used: bool) {}
 
-    fn row_count(&self) -> usize {
-        self.state.row_uid.len()
+    fn row_count(&self) -> u32 {
+        self.state.row_uid.len() as u32
     }
 
-    fn row_uid(&self, monotonic_idx: usize) -> Option<u32> {
-        self.state.row_uid.get(monotonic_idx).cloned()
+    fn row_uid(&self, monotonic_idx: u32) -> Option<u32> {
+        self.state.row_uid.get(monotonic_idx as usize).cloned()
     }
 
-    fn row_monotonic(&self, _uid: u32) -> Option<usize> {
+    fn row_monotonic(&self, _uid: u32) -> Option<u32> {
         todo!()
     }
 
-    fn cell(&mut self, cell: CellCoord) -> Option<TableCellRef> {
-        self.state.cells.get(&cell).map(|c| c.as_ref())
+    fn cell(&mut self, cell: CellCoord) -> TableCellRef {
+        self.state
+            .cells
+            .get(&cell)
+            .map(|c| c.as_ref())
+            .unwrap_or(TableCellRef::Empty)
     }
 
-    fn modify_one(&mut self, cell: CellCoord, new_value: Variant) {
-        self.state.cells.entry(cell).and_modify(|cell| {
-            cell.value = new_value;
-            // cell.is_dirty = !self.commit_immediately;
-            cell.is_dirty = false;
+    fn modify_one(&mut self, coord: CellCoord, new_value: Variant) {
+        self.state.cells.entry(coord).and_modify(|cell| {
+            if let TableCell::Available {
+                value, is_dirty, ..
+            } = cell
+            {
+                *value = new_value;
+                *is_dirty = true;
+            }
         });
         self.state.status = IoStatus::Edited;
+        self.state.one_shot_flags.cells_updated.push(coord);
     }
 
     fn create_one(&mut self, cell: CellCoord, value: Variant) {
         self.state.cells.insert(
             cell,
-            TableCell {
+            TableCell::Available {
                 value,
                 is_dirty: false,
                 in_conflict: false,
@@ -384,19 +393,21 @@ impl TableBackend for CsvBackend {
         let row_uid = self.state.row_uid.len() as u32;
         self.state.row_uid.push(row_uid);
         for col_uid in 0..self.required_columns.len() as u32 {
-            self.state.cells.insert(
-                CellCoord(row_uid, col_uid),
-                TableCell {
-                    value: values.remove(&col_uid).unwrap_or(Variant::Empty),
-                    is_dirty: false,
-                    in_conflict: false,
-                },
-            );
+            if let Some(value) = values.remove(&col_uid) {
+                self.state.cells.insert(
+                    CellCoord(row_uid, col_uid),
+                    TableCell::Available {
+                        value,
+                        is_dirty: false,
+                        in_conflict: false,
+                    },
+                );
+            }
         }
         for (col_id, value) in values {
             self.state.cells.insert(
                 CellCoord(row_uid, col_id),
-                TableCell {
+                TableCell::Available {
                     value,
                     is_dirty: false,
                     in_conflict: false,
