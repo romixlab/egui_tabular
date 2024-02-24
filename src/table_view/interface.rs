@@ -156,11 +156,15 @@ impl TableView {
             .text_format = Some(format);
     }
 
-    pub fn clear_cell_lints(&mut self, coord: CellCoord) {
+    pub fn clear_cell_lints_for(&mut self, coord: CellCoord) {
         self.state.cell_metadata.entry(coord).and_modify(|m| {
             m.tooltips.clear();
             m.lints.clear();
         });
+    }
+
+    pub fn clear_cell_lints(&mut self) {
+        self.state.cell_metadata.clear();
     }
 
     pub fn load_state(&mut self, state: PersistentSettings) {

@@ -103,6 +103,7 @@ struct UiColumn {
     custom_ui: Option<CustomUiFn>,
     custom_edit_ui: Option<CustomEditUiFn>,
     is_tool: bool, // TODO: Refactor into enum
+    is_required: bool,
 }
 
 impl UiColumn {
@@ -555,6 +556,10 @@ impl TableView {
                     let cell_uid_coord = CellCoord(row_uid, ui_column.col_uid);
                     ui_row.col(|ui| {
                         let skip = *row_skip || col_skip;
+                        let showing_editor = self.settings.editable_cells
+                        && self.state.selected_range == Some(SelectedRange::single(row_idx, monotonic_col_idx))
+                        && !ui_column.is_read_only();
+
                         match data.cell(cell_uid_coord) {
                             TableCellRef::Available { value, .. } => {
                                 if skip {
@@ -562,10 +567,7 @@ impl TableView {
                                         Color32::DARK_GRAY,
                                         RichText::new(value.to_string()).strikethrough(),
                                     );
-                                } else if self.settings.editable_cells
-                                    && self.state.selected_range == Some(SelectedRange::single(row_idx, monotonic_col_idx))
-                                    && !ui_column.is_read_only()
-                                {
+                                } else if showing_editor {
                                     let mut first_pass = false;
                                     if self.state.cell_when_editing.is_none() {
                                         first_pass = true;
@@ -646,12 +648,17 @@ impl TableView {
                                 }
                             }
                             TableCellRef::Empty => {
-                                if !skip && cell_edit::add_and_select_missing_cell(
+                                if !skip && ui_column.is_required && cell_edit::add_and_select_missing_cell(
                                         self.settings.editable_cells,
                                         ui,
                                     ) {
                                     self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
-                                    data.create_one(cell_uid_coord, Variant::Str(String::new()));
+                                    data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
+                                }
+                                // when clicking in edit mode on an empty cell
+                                if showing_editor {
+                                    debug!("Creating empty {cell_uid_coord:?}");
+                                    data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
                                 }
                             }
                             TableCellRef::Never => {
@@ -695,6 +702,7 @@ impl TableView {
                         custom_ui: self.custom_ui.get(&required_col_idx).cloned(),
                         custom_edit_ui: self.custom_edit_ui.get(&required_col_idx).cloned(),
                         is_tool: false,
+                        is_required: true,
                     };
                     columns.push((data_col.name.as_str(), header));
                 }
@@ -713,6 +721,7 @@ impl TableView {
                     custom_ui: None,
                     custom_edit_ui: None,
                     is_tool: false,
+                    is_required: true,
                 };
                 columns.push((required.name.as_str(), header));
             }
@@ -736,6 +745,7 @@ impl TableView {
                         custom_ui: None,
                         custom_edit_ui: None,
                         is_tool: false,
+                        is_required: false,
                     },
                 ));
             }
@@ -754,6 +764,7 @@ impl TableView {
             custom_ui: None,
             custom_edit_ui: None,
             is_tool: true,
+            is_required: false,
         });
         for ordered_name in &self.persistent_settings.loose_column_order {
             if let Some(pos) = columns.iter().position(|(name, _)| name == ordered_name) {

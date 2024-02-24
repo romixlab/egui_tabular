@@ -178,14 +178,16 @@ impl CsvBackend {
                                 let col_idx =
                                     csv_to_coord.get(&csv_idx).cloned().unwrap_or(csv_idx) as u32;
                                 let value = self.convert_cell_value(col_idx, field);
-                                self.state.cells.insert(
-                                    CellCoord(row_idx as u32, col_idx),
-                                    TableCell::Available {
-                                        value,
-                                        is_dirty: false,
-                                        in_conflict: false,
-                                    },
-                                );
+                                if !value.is_empty() {
+                                    self.state.cells.insert(
+                                        CellCoord(row_idx as u32, col_idx),
+                                        TableCell::Available {
+                                            value,
+                                            is_dirty: false,
+                                            in_conflict: false,
+                                        },
+                                    );
+                                }
                             }
                         }
                         Err(e) => {
@@ -364,6 +366,10 @@ impl TableBackend for CsvBackend {
     }
 
     fn modify_one(&mut self, coord: CellCoord, new_value: Variant) {
+        if new_value.is_empty() {
+            self.state.cells.remove(&coord);
+            return;
+        }
         self.state.cells.entry(coord).and_modify(|cell| {
             if let TableCell::Available {
                 value, is_dirty, ..
