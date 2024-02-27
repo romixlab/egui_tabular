@@ -611,6 +611,17 @@ impl TableView {
                                         }
                                     };
                                     if let Some(changed_value) = changed_value {
+                                        let changed_value = if ui_column.ty == VariantTy::from(&changed_value) {
+                                            changed_value
+                                        } else {
+                                            match changed_value.clone().convert_to(ui_column.ty) {
+                                                Ok(v) => v,
+                                                Err(e) => {
+                                                    warn!("Convert failed: {e:?}");
+                                                    changed_value
+                                                }
+                                            }
+                                        };
                                         if &changed_value != value {
                                             debug!("updating cell {cell_uid_coord:?} with new value: {changed_value} ty: {}", VariantTy::from(&changed_value));
                                             data.modify_one(
@@ -622,6 +633,7 @@ impl TableView {
                                         self.state.selected_range = None;
                                     }
                                 } else {
+                                    let has_correct_type = VariantTy::from(value) == ui_column.ty;
                                     match ui_column.custom_ui {
                                         Some(custom) => {
                                             let state = self.state.custom_ui_state.entry(cell_uid_coord).or_insert(Variant::Empty);
@@ -633,17 +645,8 @@ impl TableView {
                                             self.state.cell_metadata.get(&cell_uid_coord),
                                             ui,
                                             value,
+                                            has_correct_type
                                         )
-                                    }
-                                    let has_correct_type = VariantTy::from(value) == ui_column.ty;
-                                    if !has_correct_type && ui.ui_contains_pointer() {
-                                        egui::show_tooltip(
-                                            ui.ctx(),
-                                            "tableview_incorrect_data_tooltip".into(),
-                                            |ui| {
-                                                ui.label("Incorrect value for the required data type");
-                                            },
-                                        );
                                     }
                                 }
                             }

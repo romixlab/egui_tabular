@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use egui::text::LayoutJob;
-use egui::{Label, TextFormat, Ui};
+use egui::{Color32, Label, TextFormat, Ui};
 
 use rvariant::Variant;
 
@@ -15,7 +15,12 @@ pub(crate) struct CellMetadata {
     pub(crate) text_format: Option<TextFormat>,
 }
 
-pub(super) fn show_cell(metadata: Option<&CellMetadata>, ui: &mut Ui, cell_value: &Variant) {
+pub(super) fn show_cell(
+    metadata: Option<&CellMetadata>,
+    ui: &mut Ui,
+    cell_value: &Variant,
+    is_ty_correct: bool,
+) {
     let mut job = LayoutJob::default();
     let text_format = metadata
         .and_then(|m| m.text_format.clone())
@@ -62,6 +67,10 @@ pub(super) fn show_cell(metadata: Option<&CellMetadata>, ui: &mut Ui, cell_value
     }
     ui.horizontal_wrapped(|ui| {
         // ui.label(job);
+        if !is_ty_correct {
+            ui.colored_label(Color32::RED, egui_phosphor::regular::WARNING_CIRCLE)
+                .on_hover_text("Incorrect value for the required data type");
+        }
         ui.add(Label::new(job).selectable(false)).on_hover_ui(|ui| {
             ui.label(cell_value.to_string());
         });
