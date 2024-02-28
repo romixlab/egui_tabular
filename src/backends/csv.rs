@@ -1,6 +1,6 @@
 use crate::backend::{OneShotFlags, PersistentFlags, TableBackend};
 use crate::cell::{CellCoord, CellKind, StaticCellKind, TableCell, TableCellRef};
-use crate::column::{BackendColumn, RequiredColumn};
+use crate::column::{BackendColumn, TableColumn};
 use crate::filter::RowFilter;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
@@ -10,7 +10,7 @@ use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
 pub struct CsvBackend {
-    required_columns: Vec<RequiredColumn>,
+    required_columns: Vec<TableColumn>,
     separator: Separator,
     skip_first_rows: usize,
 
@@ -67,7 +67,7 @@ pub enum Separator {
 }
 
 impl CsvBackend {
-    pub fn new(required_columns: impl IntoIterator<Item = RequiredColumn>) -> Self {
+    pub fn new(required_columns: impl IntoIterator<Item = TableColumn>) -> Self {
         CsvBackend {
             required_columns: required_columns.into_iter().collect(),
             separator: Default::default(),
@@ -366,6 +366,7 @@ impl TableBackend for CsvBackend {
     }
 
     fn modify_one(&mut self, coord: CellCoord, new_value: Variant) {
+        self.state.one_shot_flags.cells_updated.push(coord);
         if new_value.is_empty() {
             self.state.cells.remove(&coord);
             return;
@@ -380,12 +381,11 @@ impl TableBackend for CsvBackend {
             }
         });
         self.state.status = IoStatus::Edited;
-        self.state.one_shot_flags.cells_updated.push(coord);
     }
 
-    fn create_one(&mut self, cell: CellCoord, value: Variant) {
+    fn create_one(&mut self, coord: CellCoord, value: Variant) {
         self.state.cells.insert(
-            cell,
+            coord,
             TableCell::Available {
                 value,
                 is_dirty: false,
@@ -393,6 +393,7 @@ impl TableBackend for CsvBackend {
             },
         );
         self.state.status = IoStatus::Edited;
+        self.state.one_shot_flags.cells_updated.push(coord);
     }
 
     fn create_row(&mut self, mut values: HashMap<u32, Variant>) -> Option<u32> {
@@ -400,27 +401,39 @@ impl TableBackend for CsvBackend {
         self.state.row_uid.push(row_uid);
         for col_uid in 0..self.required_columns.len() as u32 {
             if let Some(value) = values.remove(&col_uid) {
+                if value.is_empty() {
+                    continue;
+                }
+                let coord = CellCoord(row_uid, col_uid);
                 self.state.cells.insert(
-                    CellCoord(row_uid, col_uid),
+                    coord,
                     TableCell::Available {
                         value,
                         is_dirty: false,
                         in_conflict: false,
                     },
                 );
+                self.state.one_shot_flags.cells_updated.push(coord);
             }
         }
         for (col_id, value) in values {
+            if value.is_empty() {
+                continue;
+            }
+            let coord = CellCoord(row_uid, col_id);
             self.state.cells.insert(
-                CellCoord(row_uid, col_id),
+                coord,
                 TableCell::Available {
                     value,
                     is_dirty: false,
                     in_conflict: false,
                 },
             );
+            self.state.one_shot_flags.cells_updated.push(coord);
         }
         self.state.status = IoStatus::Edited;
+        self.state.one_shot_flags.row_set_updated = true;
+        self.state.one_shot_flags.visible_row_vec_updated = true;
         Some(row_uid)
     }
 

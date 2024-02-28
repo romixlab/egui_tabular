@@ -19,7 +19,7 @@ pub struct BackendColumn {
 /// When an array of required columns is provided to a backend, it ensures that columns indices match.
 /// With that assumption in mind, user code could rely on this order when e.g. importing a CSV file.
 #[derive(Clone)]
-pub struct RequiredColumn {
+pub struct TableColumn {
     /// Displayed column name as provided
     pub name: String,
     /// Alternative column names as provided, displayed when hovering over column's name
@@ -32,30 +32,99 @@ pub struct RequiredColumn {
     pub ty_locked: bool,
     /// Default value for newly created cells (when adding rows)
     pub default_value: Option<Variant>,
+    /// Whether this column is required or not, Add button will be displayed if required.
+    pub is_required: bool,
 }
 
-impl RequiredColumn {
+impl TableColumn {
     pub fn new(
         name: impl AsRef<str>,
         synonyms: impl IntoIterator<Item = &'static str>,
         ty: VariantTy,
+        is_required: bool,
         ty_locked: bool,
         default_value: Option<Variant>,
     ) -> Self {
-        let mut match_synonyms = vec![name.as_ref().to_lowercase()];
+        TableColumn {
+            name: name.as_ref().to_string(),
+            synonyms: vec![],
+            match_synonyms: vec![],
+            ty,
+            ty_locked,
+            default_value,
+            is_required,
+        }
+        .synonyms(synonyms)
+    }
+
+    pub fn required(name: impl AsRef<str>, ty: VariantTy, default: Option<Variant>) -> Self {
+        Self::new(name, [], ty, true, true, default)
+    }
+
+    pub fn optional(name: impl AsRef<str>, ty: VariantTy, default: Option<Variant>) -> Self {
+        Self::new(name, [], ty, false, true, default)
+    }
+
+    pub fn required_str(name: impl AsRef<str>, default: Option<String>) -> Self {
+        Self::new(
+            name,
+            [],
+            VariantTy::Str,
+            true,
+            true,
+            default.map(|s| Variant::Str(s)),
+        )
+    }
+
+    pub fn required_u32(name: impl AsRef<str>, default: Option<u32>) -> Self {
+        Self::new(
+            name,
+            [],
+            VariantTy::U32,
+            true,
+            true,
+            default.map(|x| Variant::U32(x)),
+        )
+    }
+
+    pub fn optional_str(name: impl AsRef<str>, default: Option<String>) -> Self {
+        Self::new(
+            name,
+            [],
+            VariantTy::Str,
+            false,
+            true,
+            default.map(|s| Variant::Str(s)),
+        )
+    }
+
+    pub fn optional_u32(name: impl AsRef<str>, default: Option<u32>) -> Self {
+        Self::new(
+            name,
+            [],
+            VariantTy::U32,
+            false,
+            true,
+            default.map(|x| Variant::U32(x)),
+        )
+    }
+
+    pub fn synonyms(mut self, synonyms: impl IntoIterator<Item = &'static str>) -> Self {
+        let mut match_synonyms = vec![self.name.to_lowercase(), self.name.replace(' ', "")];
         let mut synonyms_owned = vec![];
         for s in synonyms.into_iter() {
             synonyms_owned.push(s.to_string());
             match_synonyms.push(s.to_lowercase());
         }
-        RequiredColumn {
-            name: name.as_ref().to_string(),
-            synonyms: synonyms_owned,
-            match_synonyms,
-            ty,
-            ty_locked,
-            default_value,
-        }
+
+        self.match_synonyms = match_synonyms;
+        self.synonyms = synonyms_owned;
+        self
+    }
+
+    pub fn ty_locked(mut self, ty_locked: bool) -> Self {
+        self.ty_locked = ty_locked;
+        self
     }
 
     /// Find an index of a matching column in the provided array of strings

@@ -74,74 +74,50 @@ pub(super) fn show_cell(
         ui.add(Label::new(job).selectable(false)).on_hover_ui(|ui| {
             ui.label(cell_value.to_string());
         });
+        // if let Some(m) = metadata {
+        //     for (color, icon) in m.lints.iter().filter_map(|l| {
+        //         if let Lint::AddIcon { color, icon } = l {
+        //             Some((*color, *icon))
+        //         } else {
+        //             None
+        //         }
+        //     }) {
+        //         ui.colored_label(color, icon);
+        //     }
+        // }
         if let Some(m) = metadata {
-            for (color, icon) in m.lints.iter().filter_map(|l| {
-                if let Lint::AddIcon { color, icon } = l {
-                    Some((*color, *icon))
-                } else {
-                    None
-                }
-            }) {
-                ui.colored_label(color, icon);
-            }
+            m.show(ui);
         }
     });
-    if let Some(m) = metadata {
-        if !m.tooltips.is_empty() && ui.rect_contains_pointer(ui.max_rect()) {
+    // if let Some(m) = metadata {
+    //     if !m.tooltips.is_empty() && ui.rect_contains_pointer(ui.max_rect()) {
+    //         egui::show_tooltip(ui.ctx(), egui::Id::new("show_cell_tooltip"), |ui| {
+    //             for t in &m.tooltips {
+    //                 ui.label(t.as_str());
+    //             }
+    //         });
+    //     }
+    // }
+}
+
+impl CellMetadata {
+    pub(crate) fn show(&self, ui: &mut Ui) {
+        for (color, icon) in self.lints.iter().filter_map(|l| {
+            if let Lint::AddIcon { color, icon } = l {
+                Some((*color, *icon))
+            } else {
+                None
+            }
+        }) {
+            ui.colored_label(color, icon);
+        }
+
+        if !self.tooltips.is_empty() && ui.rect_contains_pointer(ui.max_rect()) {
             egui::show_tooltip(ui.ctx(), egui::Id::new("show_cell_tooltip"), |ui| {
-                for t in &m.tooltips {
+                for t in &self.tooltips {
                     ui.label(t.as_str());
                 }
             });
         }
     }
-    // let warnings = metadata.map(|m| &m.warnings);
-    // if let Some(warnings) = warnings {
-    //     let mut warnings = warnings.clone();
-    //     warnings.sort_by(|a, b| a.0.start.cmp(&b.0.start));
-    //     let mut last_char_idx = 0;
-    //     for w in warnings.iter() {
-    //         if w.0.start > cell_text.len() || w.0.end > cell_text.len() {
-    //             warn!("Malformed warning range");
-    //             break;
-    //         }
-    //         if w.0.start >= last_char_idx {
-    //             job.append(
-    //                 &cell_text[last_char_idx..w.0.start],
-    //                 0.0,
-    //                 TextFormat::default(),
-    //             );
-    //         }
-    //         job.append(
-    //             &cell_text[w.0.clone()],
-    //             0.0,
-    //             TextFormat {
-    //                 underline: Stroke {
-    //                     color: Color32::RED,
-    //                     width: 2.0,
-    //                 },
-    //                 ..Default::default()
-    //             },
-    //         );
-    //         last_char_idx = w.0.end;
-    //     }
-    //     if last_char_idx != cell_text.len() {
-    //         job.append(
-    //             &cell_text[last_char_idx..cell_text.len()],
-    //             0.0,
-    //             TextFormat::default(),
-    //         );
-    //     }
-    //     ui.label(job);
-    // } else {
-    // let mut job =
-    //     LayoutJob::single_section(cell_text.clone(), TextFormat::default());
-    // job.wrap = TextWrapping {
-    //     break_anywhere: false,
-    //     ..Default::default()
-    // };
-    //
-    // ui.label(job); // `Label` overrides some of the wrapping settings, e.g. wrap width
-    // ui.add(Label::new(cell_text).truncate(true));
-    // }
 }

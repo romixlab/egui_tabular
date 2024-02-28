@@ -9,7 +9,7 @@ use log::{debug, warn};
 
 use crate::backend::TableBackend;
 use crate::cell::{CellCoord, CellKind, StaticCellKind, TableCellRef};
-use crate::column::RequiredColumn;
+use crate::column::TableColumn;
 use crate::filter::{FilterOperation, RowFilter, VariantFilter};
 use rvariant::{Variant, VariantTy};
 
@@ -37,7 +37,7 @@ pub use interface::{PersistentSettings, Settings};
 pub struct TableView {
     id: String,
     state: State,
-    required_columns: Vec<RequiredColumn>,
+    required_columns: Vec<TableColumn>,
 
     settings: Settings,
     persistent_settings: PersistentSettings,
@@ -180,7 +180,7 @@ impl SelectionKeyNavigation {
 
 impl TableView {
     pub fn new<S: AsRef<str>>(
-        required_columns: impl IntoIterator<Item = RequiredColumn>,
+        required_columns: impl IntoIterator<Item = TableColumn>,
         id: S,
     ) -> Self {
         TableView {
@@ -198,10 +198,6 @@ impl TableView {
     }
 
     pub fn show(&mut self, data: &mut impl TableBackend, ui: &mut Ui) {
-        // if !data.flags().column_info_present {
-        //     ui.label("Empty table");
-        //     return;
-        // }
         if data.one_shot_flags().cleared {
             // self.state.cell_metadata.clear();
             self.state = State::default();
@@ -210,10 +206,6 @@ impl TableView {
             self.map_columns(data);
         }
         data.poll();
-        // if self.state.columns.is_empty() {
-        //     ui.label("TableView: Empty table");
-        //     return;
-        // }
 
         self.state.disabled_col = None;
         self.state.enabled_col = None;
@@ -231,14 +223,15 @@ impl TableView {
             window_contains_pointer,
         );
         ui.separator();
-        // column selector and rearrange
-        // column filters and sort
 
         let key_navigation = SelectionKeyNavigation::from_ui(ui);
         self.handle_key_input(data, ui);
 
         if window_contains_pointer {
             self.handle_paste(ui, data, &mut modal);
+        }
+        if !window_contains_pointer && ui.input(|i| i.pointer.primary_clicked()) {
+            self.state.save_cell_changes_and_deselect = true;
         }
         self.handle_paste_continue(data, &mut modal);
         self.handle_clear_request(data, &mut modal);
@@ -319,7 +312,7 @@ impl TableView {
                 table_builder
             };
             for h in &self.state.columns {
-                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 80.0).at_least(36.0).clip(true));
+                table_builder.push_column(Column::initial(h.name.len() as f32 * 8.0 + 100.0).at_least(36.0).clip(true));
             }
             let mut table_builder = table_builder
                 .header(24.0, |mut row| {
@@ -623,7 +616,7 @@ impl TableView {
                                             }
                                         };
                                         if &changed_value != value {
-                                            debug!("updating cell {cell_uid_coord:?} with new value: {changed_value} ty: {}", VariantTy::from(&changed_value));
+                                            debug!("updating cell {cell_uid_coord:?} with new value: '{changed_value}' ty: {}", VariantTy::from(&changed_value));
                                             data.modify_one(
                                                 cell_uid_coord,
                                                 changed_value,
@@ -651,18 +644,23 @@ impl TableView {
                                 }
                             }
                             TableCellRef::Empty => {
-                                if !skip && ui_column.is_required && cell_edit::add_and_select_missing_cell(
-                                        self.settings.editable_cells,
-                                        ui,
-                                    ) {
-                                    self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
-                                    data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
-                                }
-                                // when clicking in edit mode on an empty cell
-                                if showing_editor {
-                                    debug!("Creating empty {cell_uid_coord:?}");
-                                    data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
-                                }
+                                ui.horizontal(|ui| {
+                                    if !skip && ui_column.is_required && cell_edit::add_and_select_missing_cell(
+                                            self.settings.editable_cells,
+                                            ui,
+                                        ) {
+                                        self.state.selected_range = Some(SelectedRange::single(row_idx, monotonic_col_idx));
+                                        data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
+                                    }
+                                    // when clicking in edit mode on an empty cell
+                                    if showing_editor {
+                                        debug!("Creating empty {cell_uid_coord:?}");
+                                        data.create_one(cell_uid_coord, ui_column.default_value.clone().unwrap_or(Variant::Str(String::new())));
+                                    }
+                                    if let Some(m) = self.state.cell_metadata.get(&cell_uid_coord) {
+                                        m.show(ui);
+                                    }
+                                });
                             }
                             TableCellRef::Never => {
                                 ui.label("TODO: hatch cell");
@@ -682,9 +680,9 @@ impl TableView {
         let mut matched_headers = Vec::new();
         let mut columns = Vec::new();
 
-        for (required_col_idx, required) in self.required_columns.iter().enumerate() {
+        for (required_col_idx, column) in self.required_columns.iter().enumerate() {
             let required_col_idx = required_col_idx as u32;
-            if let Some(data_col_id) = required.find_match_map(data_columns) {
+            if let Some(data_col_id) = column.find_match_map(data_columns) {
                 let data_col = data_columns.get(&data_col_id).unwrap();
                 if matched_headers.contains(&data_col_id) {
                     warn!("Double match for column: {}", data_col.name);
@@ -692,11 +690,11 @@ impl TableView {
                     matched_headers.push(data_col_id);
 
                     let header = UiColumn {
-                        name: required.name.clone(),
-                        synonyms: required.synonyms.clone(),
-                        ty: required.ty,
-                        ty_locked: required.ty_locked,
-                        default_value: required.default_value.clone(),
+                        name: column.name.clone(),
+                        synonyms: column.synonyms.clone(),
+                        ty: column.ty,
+                        ty_locked: column.ty_locked,
+                        default_value: column.default_value.clone(),
                         col_uid: data_col_id,
                         skip: false,
                         kind: data_col.kind,
@@ -705,17 +703,17 @@ impl TableView {
                         custom_ui: self.custom_ui.get(&required_col_idx).cloned(),
                         custom_edit_ui: self.custom_edit_ui.get(&required_col_idx).cloned(),
                         is_tool: false,
-                        is_required: true,
+                        is_required: column.is_required,
                     };
                     columns.push((data_col.name.as_str(), header));
                 }
             } else {
                 let header = UiColumn {
-                    name: required.name.clone(),
-                    synonyms: required.synonyms.clone(),
-                    ty: required.ty,
-                    ty_locked: required.ty_locked,
-                    default_value: required.default_value.clone(),
+                    name: column.name.clone(),
+                    synonyms: column.synonyms.clone(),
+                    ty: column.ty,
+                    ty_locked: column.ty_locked,
+                    default_value: column.default_value.clone(),
                     col_uid: required_col_idx,
                     skip: false,
                     kind: CellKind::Static(StaticCellKind::Plain),
@@ -724,9 +722,9 @@ impl TableView {
                     custom_ui: None,
                     custom_edit_ui: None,
                     is_tool: false,
-                    is_required: true,
+                    is_required: column.is_required,
                 };
-                columns.push((required.name.as_str(), header));
+                columns.push((column.name.as_str(), header));
             }
         }
         // Put all additional columns to the right of required ones
