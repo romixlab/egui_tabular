@@ -230,9 +230,6 @@ impl TableView {
         if window_contains_pointer {
             self.handle_paste(ui, data, &mut modal);
         }
-        if !window_contains_pointer && ui.input(|i| i.pointer.primary_clicked()) {
-            self.state.save_cell_changes_and_deselect = true;
-        }
         self.handle_paste_continue(data, &mut modal);
         self.handle_clear_request(data, &mut modal);
         modal.show_dialog();
