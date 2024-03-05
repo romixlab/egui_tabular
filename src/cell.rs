@@ -100,6 +100,22 @@ impl<'a> TableCellRef<'a> {
         }
     }
 
+    pub fn get_if_enum(&self, enum_uid: u32) -> Option<u32> {
+        if let TableCellRef::Available { value, .. } = self {
+            if let Variant::Enum { enum_uid: uid, discriminant } = value {
+                if *uid == enum_uid {
+                    Some(*discriminant)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         matches!(self, TableCellRef::Empty)
     }
