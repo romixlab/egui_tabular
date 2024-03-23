@@ -64,6 +64,14 @@ pub enum TableCellRef<'a> {
 }
 
 impl<'a> TableCellRef<'a> {
+    pub fn get_ref(&self) -> Option<&Variant> {
+        if let TableCellRef::Available { value, .. } = self {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
     pub fn get_if_str(&self) -> Option<&str> {
         if let TableCellRef::Available { value, .. } = self {
             if let Variant::Str(s) = value {
@@ -102,7 +110,11 @@ impl<'a> TableCellRef<'a> {
 
     pub fn get_if_enum(&self, enum_uid: u32) -> Option<u32> {
         if let TableCellRef::Available { value, .. } = self {
-            if let Variant::Enum { enum_uid: uid, discriminant } = value {
+            if let Variant::Enum {
+                enum_uid: uid,
+                discriminant,
+            } = value
+            {
                 if *uid == enum_uid {
                     Some(*discriminant)
                 } else {

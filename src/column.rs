@@ -127,6 +127,16 @@ impl TableColumn {
         self
     }
 
+    // Returns true if name is found match synonyms
+    pub fn matches(&self, name: &str) -> bool {
+        for synonym in &self.match_synonyms {
+            if name == synonym {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Find an index of a matching column in the provided array of strings
     pub fn find_match_arr(&self, names: &[&str]) -> Option<usize> {
         for (idx, name) in names.iter().map(|n| n.to_lowercase()).enumerate() {

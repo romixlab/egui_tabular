@@ -357,7 +357,7 @@ impl TableBackend for CsvBackend {
         todo!()
     }
 
-    fn cell(&mut self, cell: CellCoord) -> TableCellRef {
+    fn cell(&self, cell: CellCoord) -> TableCellRef {
         self.state
             .cells
             .get(&cell)

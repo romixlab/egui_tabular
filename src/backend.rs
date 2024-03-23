@@ -46,7 +46,7 @@ pub trait TableBackend {
     /// Get cell value if available, remember to load it otherwise.
     /// Remember to map monotonic indices to uid through row_uid() method.
     /// Columns are also uid's, can directly use what's in the available_columns() hashmap
-    fn cell(&mut self, cell: CellCoord) -> TableCellRef;
+    fn cell(&self, cell: CellCoord) -> TableCellRef;
     fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);

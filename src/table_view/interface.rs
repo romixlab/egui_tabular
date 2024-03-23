@@ -124,7 +124,7 @@ impl TableView {
         self.state.custom_ui_response.take()
     }
 
-    pub fn add_tool_ui(&mut self, tool_ui: CustomToolUiFn) {
+    pub fn set_tool_ui(&mut self, tool_ui: CustomToolUiFn) {
         self.tool_ui = Some(tool_ui);
     }
 
@@ -186,34 +186,52 @@ impl TableView {
         self.custom_edit_ui.insert(col_id, ui);
     }
 
-    pub fn set_recognized(&mut self, col_id: u32, recognized: bool) {
+    pub fn set_col_recognized(&mut self, col_id: u32, recognized: bool) {
         if let Some(column) = self.state.columns.iter_mut().find(|c| c.col_uid == col_id) {
             column.recognized = recognized;
         }
+    }
+
+    pub fn is_col_recognized(&self, col_id: u32) -> bool {
+        self.state
+            .columns
+            .iter()
+            .find(|c| c.col_uid == col_id)
+            .map(|c| c.recognized)
+            .unwrap_or(false)
     }
 
     pub fn scroll_to_row(&mut self, monotonic_row_idx: u32) {
         self.state.scroll_to_row = Some(monotonic_row_idx);
     }
 
-    pub fn row_disabled(&self) -> Option<u32> {
+    pub fn skipped_row(&self) -> Option<u32> {
         self.state.disabled_row
     }
 
-    pub fn row_enabled(&self) -> Option<u32> {
+    pub fn unskipped_row(&self) -> Option<u32> {
         self.state.enabled_row
     }
 
-    pub fn col_disabled(&self) -> Option<u32> {
+    pub fn skipped_col(&self) -> Option<u32> {
         self.state.disabled_col
     }
 
-    pub fn col_enabled(&self) -> Option<u32> {
+    pub fn unskipped_col(&self) -> Option<u32> {
         self.state.enabled_col
     }
 
     pub fn is_row_skipped(&self, row_uid: u32) -> bool {
         self.state.rows_skip.get(&row_uid).cloned().unwrap_or(false)
+    }
+
+    pub fn is_col_skipped(&self, col_id: u32) -> bool {
+        self.state
+            .columns
+            .iter()
+            .find(|c| c.col_uid == col_id)
+            .map(|c| c.skip)
+            .unwrap_or(false)
     }
 
     pub fn skip_row(&mut self, row_uid: u32, skip: bool) {
