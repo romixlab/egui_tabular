@@ -1,72 +1,110 @@
-use std::collections::HashMap;
+use egui::Ui;
+use egui_extras::Column as TableColumnConfig;
+use serde::{Deserialize, Serialize};
 
-use crate::cell::{CellCoord, TableCellRef};
-use crate::column::BackendColumn;
-use crate::filter::RowFilter;
-use rvariant::Variant;
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Serialize, Deserialize)]
+// #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
+pub struct CellCoord {
+    pub row: u32,
+    pub col_id: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
+pub struct BackendColumn {
+    pub col_id: u32,
+    pub name: String,
+    pub ty: String,
+    pub is_sortable: bool,
+}
 
 pub trait TableBackend {
     /// Drop all data and start loading from scratch.
-    fn reload(&mut self);
-    /// Fetch all remote data without waiting fot it to be queried
-    fn fetch_all(&mut self);
-    fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
+    fn reload(&mut self) {}
+    // Fetch all remote data without waiting fot it to be queried
+    // fn fetch_all(&mut self);
+    // fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
+    fn clear(&mut self);
 
     /// Send to server or write to disk all the changes made while commit_immediately was false.
-    fn commit_all(&mut self);
+    fn commit_all(&mut self) {}
     /// Whether to immediately send or write to disk all the changes as they are being made.
-    fn commit_immediately(&mut self, enabled: bool);
+    fn commit_immediately(&mut self, enabled: bool) {
+        let _ = enabled;
+    }
 
     fn persistent_flags(&self) -> &PersistentFlags;
     fn one_shot_flags(&self) -> &OneShotFlags;
     fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags;
 
     /// Process requests, talk to backend, watch for file changes, etc.
-    fn poll(&mut self);
+    /// Must be called periodically, for example each frame.
+    fn poll(&mut self) {}
 
-    /// Returns all available columns. Columns use unique identifiers. Some are global, some context dependent.
-    fn available_columns(&self) -> &HashMap<u32, BackendColumn>;
+    /// Returns all available columns. Columns contain unique identifiers.
+    fn available_columns(&self) -> &[BackendColumn];
     /// Returns actually used columns, unused data is e.g. not sent over the network.
-    fn used_columns(&self) -> &HashMap<u32, BackendColumn>;
+    fn used_columns(&self) -> &[BackendColumn];
+
     /// Choose whether to use a certain column or not.
-    fn use_column(&mut self, col_uid: u32, is_used: bool);
+    fn use_column(&mut self, col_id: u32, is_used: bool) {
+        let (_, _) = (col_id, is_used);
+    }
     // Choose whether to use certain columns or not.
     // fn use_columns(&mut self, cols: impl Iterator<Item = (usize, bool)>);
+    fn is_sortable_column(&self, col_id: u32) -> bool {
+        false
+    }
 
-    /// Returns total row count.
-    fn row_count(&self) -> u32;
+    /// Returns the rendering configuration for the column.
+    fn column_render_config(&mut self, column: usize) -> TableColumnConfig {
+        let _ = column;
+        TableColumnConfig::auto().resizable(true)
+    }
+
+    /// Returns visible row count, with filters applied.
+    fn visible_row_count(&self) -> usize;
     // Get unique IDs of all rows
     // fn row_uid_set(&self) -> Vec<u32>;
-    /// Map index from 0..row_count() range to external data source row id
-    fn row_uid(&self, monotonic_idx: u32) -> Option<u32>;
-    /// Map unique row id back into monotonic index, if it is in the current view.
-    /// Can be used to jump to another row.
-    fn row_monotonic(&self, row_uid: u32) -> Option<u32>;
+    // Map index from 0..row_count() range to external data source row id
+    // fn row_uid(&self, monotonic_idx: u32) -> Option<u32>;
+    // Map unique row id back into monotonic index, if it is in the current view.
+    // Can be used to jump to another row.
+    // fn row_monotonic(&self, row_uid: u32) -> Option<u32>;
 
-    /// Get cell value if available, remember to load it otherwise.
-    /// Remember to map monotonic indices to uid through row_uid() method.
-    /// Columns are also uid's, can directly use what's in the available_columns() hashmap
-    fn cell(&self, cell: CellCoord) -> TableCellRef;
-    fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
+    fn show_cell_view(&self, row_mono: usize, col_uid: u32, ui: &mut Ui);
+    fn show_cell_editor(&mut self, cell: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
+    // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);
-    fn create_one(&mut self, cell: CellCoord, value: Variant);
-    /// Create one row at the end and return it's uid if table is not read only
-    /// Use provided values, if no value is provided, Column's default will be used.
-    /// If there are not default value for Column, ui should show warning and do not allow committing.
-    /// If commit is tried anyway, it will be rejected.
-    fn create_row(&mut self, values: HashMap<u32, Variant>) -> Option<u32>;
-    fn remove_rows(&mut self, row_ids: Vec<u32>);
-    fn clear(&mut self);
+    // fn create_one(&mut self, cell: CellCoord, value: Variant);
+    // Create one row at the end and return it's uid if table is not read only
+    // Use provided values, if no value is provided, Column's default will be used.
+    // If there are not default value for Column, ui should show warning and do not allow committing.
+    // If commit is tried anyway, it will be rejected.
+    // fn create_row(&mut self, values: HashMap<u32, Variant>) -> Option<u32>;
+    // fn remove_rows(&mut self, row_ids: Vec<u32>);
 
-    /// Removes all row filters
-    fn clear_row_filters(&mut self);
-    /// Hides some rows by their IDs
-    fn add_row_filter(&mut self, filter: RowFilter, additive: bool, name: impl AsRef<str>);
-    /// Remove one filter by its index and replay all remaining filters.
-    fn remove_row_filter(&mut self, idx: usize);
-    /// Get currently used row filters
-    fn row_filters(&self) -> &[(RowFilter, String)];
+    /// Use this to check if given cell is going to take any dropped payload / use as drag
+    /// source.
+    fn on_cell_view_response(&mut self, cell: CellCoord, resp: &egui::Response) -> Option<()> {
+        let _ = (cell, resp);
+        None
+    }
+
+    /// Called when a cell is selected/highlighted.
+    fn on_highlight_cell(&mut self, cell: CellCoord) {
+        let _ = cell;
+    }
+
+    // Removes all row filters
+    // fn clear_row_filters(&mut self);
+    // Hides some rows by their IDs
+    // fn add_row_filter(&mut self, filter: RowFilter, additive: bool, name: impl AsRef<str>);
+    // Remove one filter by its index and replay all remaining filters.
+    // fn remove_row_filter(&mut self, idx: usize);
+    // Get currently used row filters
+    // fn row_filters(&self) -> &[(RowFilter, String)];
 }
 
 #[derive(Default)]

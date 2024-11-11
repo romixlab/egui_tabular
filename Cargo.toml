@@ -3,20 +3,22 @@ name = "egui_tabular"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = [
+    "demos/simple"
+]
+
 [dependencies]
-egui = { version = "0.26", optional = true }
-egui_dnd = { version = "0.7", optional = true }
-egui-modal = { version = "0.3", optional = true }
-egui-phosphor = { version = "0.4", features = ["fill"], optional = true }
-itertools = "0.12"
-rfd = "0.13"
+egui = { version = "0.29" }
+egui_extras = { version = "0.29", features = ["serde"] }
+egui_dnd = { version = "0.10" }
+egui-modal = { version = "0.5" }
+egui-phosphor = { version = "0.7", features = ["fill"] }
+itertools = "0.13"
+rfd = "0.15"
 log = "0"
-serde = { version = "1", features = ["derive"], optional = true }
-csv = "1.2"
+serde = { version = "1", features = ["derive"] }
+csv = "1.3"
 strum = { version = "0.26", features = ["derive"] }
 rvariant = { path = "../rvariant" }
-
-[features]
-default = ["gui"]
-gui = ["dep:egui", "dep:egui_dnd", "dep:egui-modal", "dep:egui-phosphor"]
-serde = ["dep:serde", "rvariant/serde"]
+tap = "1.0"
