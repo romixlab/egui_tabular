@@ -11,10 +11,10 @@ pub struct VisualRowIdx(pub usize);
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ColumnUid(pub u32);
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct CellCoord {
     pub row_uid: RowUid,
-    pub col_uid: ColumnUid
+    pub col_uid: ColumnUid,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +51,7 @@ pub trait TableBackend {
     fn poll(&mut self) {}
 
     /// Returns all available columns.
-    fn available_columns(&self) -> &[ColumnUid];
+    fn available_columns(&self) -> impl Iterator<Item = ColumnUid>;
     /// Returns actually used columns, unused data is e.g. not sent over the network.
     fn used_columns(&self) -> impl Iterator<Item = ColumnUid>;
     fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn>;

@@ -8,13 +8,16 @@ allowing implementations based on vectors, files, databases and other data struc
 TODO: Add web demo.
 
 ## Features
- 
+
 * [x] Cells UI and table information is provided through the TableBackend trait.
 * [x] Custom cell viewer and editor ui, any egui or user widgets can be used.
+* [x] Built-in cell viewers and editors through VariantBackend:
+    * [x] String, string list, numbers, booleans, custom enums
+    * [ ] Date, SI values, currency
 * [ ] Data import with automatic column mapping based on names.
-  * [ ] CSV support.
-  * [ ] XLS support.
-* [ ] Undo / Redo support. 
+    * [ ] CSV support.
+    * [ ] XLS support.
+* [ ] Undo / Redo support.
 * [x] No need to keep all data in memory (if backend supports it).
 * [ ] Support for sorting.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.

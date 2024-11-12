@@ -1,110 +1,39 @@
-use std::collections::HashMap;
-use egui::{Response, Ui};
-use egui_tabular::backend::{BackendColumn, ColumnUid, OneShotFlags, PersistentFlags, TableBackend, CellCoord, VisualRowIdx, RowUid};
+use egui_tabular::backend::ColumnUid;
+use egui_tabular::backends::variant::VariantBackend;
+use egui_tabular::rvariant::{Variant, VariantTy};
 use egui_tabular::TableView;
 
-struct TableVecData {
-    data: Vec<Vec<String>>,
-    available_columns: HashMap<ColumnUid, BackendColumn>,
-}
-
-impl TableBackend for TableVecData {
-    fn clear(&mut self) {}
-
-    fn persistent_flags(&self) -> &PersistentFlags {
-        todo!()
-    }
-
-    fn one_shot_flags(&self) -> &OneShotFlags {
-        todo!()
-    }
-
-    fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags {
-        todo!()
-    }
-
-    fn available_columns(&self) -> &[ColumnUid] {
-        todo!()
-    }
-
-    fn used_columns(&self) -> impl Iterator<Item=ColumnUid> {
-        self.available_columns.keys().copied()
-    }
-
-    fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn> {
-        self.available_columns.get(&col_uid)
-    }
-
-    fn row_count(&self) -> usize {
-        self.data.len()
-    }
-
-    fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid> {
-        Some(RowUid(row_idx.0 as u32))
-    }
-
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui) {
-        if let Some(row) = self.data.get(coord.row_uid.0 as usize) {
-            if let Some(cell) = row.get(coord.col_uid.0 as usize) {
-                if coord.row_uid.0 == 2 {
-                    return;
-                }
-                ui.label(cell);
-
-                if coord.row_uid.0 == 3 && coord.col_uid.0 == 1 {
-                    ui.label("Label 2");
-                }
-            }
-        }
-    }
-
-    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui) -> Option<Response> {
-        todo!()
-    }
-}
-
-impl TableVecData {
-    pub fn new() -> Self {
-        TableVecData {
-            data: vec![
-                vec!["Abc............".into(), "Def".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Row2 Col0".into(), "Ghj".into()],
-                vec!["Row3 Col0".into(), "Row3 Col1".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-                vec!["Zyx".into(), "Ghj".into()],
-            ],
-            available_columns: [
-                (ColumnUid(0), BackendColumn {
-                    name: "Col A".to_string(),
-                    ty: "String".to_string(),
-                    is_sortable: false,
-                }),
-                (ColumnUid(1), BackendColumn {
-                    name: "Col B".to_string(),
-                    ty: "String".to_string(),
-                    is_sortable: false,
-                }),
-            ].into(),
-        }
-    }
-}
-
 struct SimpleApp {
-    // table: egui_data_table::DataTable<Row>,
-    // viewer: Viewer,
-    data: TableVecData,
+    backend: VariantBackend,
     viewer: TableView,
 }
 
 impl Default for SimpleApp {
     fn default() -> Self {
+        let mut backend = VariantBackend::new(
+            [
+                (
+                    "Name".into(),
+                    VariantTy::Str,
+                    Some(Variant::Str("Default name".into())),
+                ),
+                ("Count".into(), VariantTy::U32, Some(Variant::U32(0))),
+            ]
+            .into_iter(),
+        );
+        let mut rng = fastrand::Rng::new();
+        let mut name_gen = names::Generator::with_naming(names::Name::Numbered);
+        for _ in 0..10_000 {
+            backend.insert_row(
+                [
+                    (ColumnUid(0), Variant::Str(name_gen.next().unwrap())),
+                    (ColumnUid(1), Variant::U32(rng.u32(0..=1000))),
+                ]
+                .into_iter(),
+            );
+        }
         Self {
-            data: TableVecData::new(),
+            backend,
             viewer: TableView::new(),
         }
     }
@@ -127,7 +56,7 @@ impl eframe::App for SimpleApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.viewer.show(&mut self.data, ui);
+            self.viewer.show(&mut self.backend, ui);
         });
     }
 }
