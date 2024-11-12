@@ -2,28 +2,36 @@ use egui::Ui;
 use egui_extras::Column as TableColumnConfig;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Serialize, Deserialize)]
-// #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct RowUid(pub u32);
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+pub struct VisualRowIdx(pub usize);
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+pub struct ColumnUid(pub u32);
+
+#[derive(Copy, Clone)]
 pub struct CellCoord {
-    pub row: u32,
-    pub col_id: u32,
+    pub row_uid: RowUid,
+    pub col_uid: ColumnUid
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 // #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
 pub struct BackendColumn {
-    pub col_id: u32,
     pub name: String,
     pub ty: String,
     pub is_sortable: bool,
 }
 
 pub trait TableBackend {
-    /// Drop all data and start loading from scratch.
+    /// Drop all data from memory and start loading from scratch. No-op if memory based backend.
     fn reload(&mut self) {}
     // Fetch all remote data without waiting fot it to be queried
     // fn fetch_all(&mut self);
     // fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
+    /// Clear all row data from memory.
     fn clear(&mut self);
 
     /// Send to server or write to disk all the changes made while commit_immediately was false.
@@ -39,41 +47,35 @@ pub trait TableBackend {
 
     /// Process requests, talk to backend, watch for file changes, etc.
     /// Must be called periodically, for example each frame.
+    /// Should not block or take too long on each run.
     fn poll(&mut self) {}
 
-    /// Returns all available columns. Columns contain unique identifiers.
-    fn available_columns(&self) -> &[BackendColumn];
+    /// Returns all available columns.
+    fn available_columns(&self) -> &[ColumnUid];
     /// Returns actually used columns, unused data is e.g. not sent over the network.
-    fn used_columns(&self) -> &[BackendColumn];
+    fn used_columns(&self) -> impl Iterator<Item = ColumnUid>;
+    fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn>;
 
     /// Choose whether to use a certain column or not.
-    fn use_column(&mut self, col_id: u32, is_used: bool) {
-        let (_, _) = (col_id, is_used);
+    fn use_column(&mut self, col_uid: ColumnUid, is_used: bool) {
+        let (_, _) = (col_uid, is_used);
     }
     // Choose whether to use certain columns or not.
     // fn use_columns(&mut self, cols: impl Iterator<Item = (usize, bool)>);
-    fn is_sortable_column(&self, col_id: u32) -> bool {
-        false
-    }
 
     /// Returns the rendering configuration for the column.
-    fn column_render_config(&mut self, column: usize) -> TableColumnConfig {
-        let _ = column;
+    fn column_render_config(&mut self, col_uid: ColumnUid) -> TableColumnConfig {
+        let _ = col_uid;
         TableColumnConfig::auto().resizable(true)
     }
 
-    /// Returns visible row count, with filters applied.
-    fn visible_row_count(&self) -> usize;
-    // Get unique IDs of all rows
-    // fn row_uid_set(&self) -> Vec<u32>;
-    // Map index from 0..row_count() range to external data source row id
-    // fn row_uid(&self, monotonic_idx: u32) -> Option<u32>;
-    // Map unique row id back into monotonic index, if it is in the current view.
-    // Can be used to jump to another row.
-    // fn row_monotonic(&self, row_uid: u32) -> Option<u32>;
+    /// Returns row count, with filters applied.
+    fn row_count(&self) -> usize;
+    /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
+    fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
 
-    fn show_cell_view(&self, row_mono: usize, col_uid: u32, ui: &mut Ui);
-    fn show_cell_editor(&mut self, cell: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
+    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui);
+    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);
@@ -87,14 +89,14 @@ pub trait TableBackend {
 
     /// Use this to check if given cell is going to take any dropped payload / use as drag
     /// source.
-    fn on_cell_view_response(&mut self, cell: CellCoord, resp: &egui::Response) -> Option<()> {
-        let _ = (cell, resp);
+    fn on_cell_view_response(&mut self, coord: CellCoord, resp: &egui::Response) -> Option<()> {
+        let _ = (coord, resp);
         None
     }
 
     /// Called when a cell is selected/highlighted.
-    fn on_highlight_cell(&mut self, cell: CellCoord) {
-        let _ = cell;
+    fn on_highlight_cell(&mut self, coord: CellCoord) {
+        let _ = coord;
     }
 
     // Removes all row filters
@@ -143,8 +145,8 @@ pub struct OneShotFlags {
     pub row_set_updated: bool,
     /// Set once when visible row set was changed (after filtering or sorting)
     pub visible_row_vec_updated: bool,
-    /// Set once when received updated for already available cell's
-    pub cells_updated: Vec<CellCoord>,
+    // Set once when received updated for already available cell's
+    // pub cells_updated: Vec<CellCoord>,
     /// Set once when clear() is called.
     pub cleared: bool,
 }

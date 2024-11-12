@@ -1,13 +1,11 @@
+use std::collections::HashMap;
 use egui::{Response, Ui};
-use egui_tabular::backend::{
-    BackendColumn, CellCoord, OneShotFlags, PersistentFlags, TableBackend,
-};
+use egui_tabular::backend::{BackendColumn, ColumnUid, OneShotFlags, PersistentFlags, TableBackend, CellCoord, VisualRowIdx, RowUid};
 use egui_tabular::TableView;
-use std::ops::Index;
 
 struct TableVecData {
     data: Vec<Vec<String>>,
-    available_columns: Vec<BackendColumn>,
+    available_columns: HashMap<ColumnUid, BackendColumn>,
 }
 
 impl TableBackend for TableVecData {
@@ -25,27 +23,42 @@ impl TableBackend for TableVecData {
         todo!()
     }
 
-    fn available_columns(&self) -> &[BackendColumn] {
+    fn available_columns(&self) -> &[ColumnUid] {
         todo!()
     }
 
-    fn used_columns(&self) -> &[BackendColumn] {
-        &self.available_columns
+    fn used_columns(&self) -> impl Iterator<Item=ColumnUid> {
+        self.available_columns.keys().copied()
     }
 
-    fn visible_row_count(&self) -> usize {
+    fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn> {
+        self.available_columns.get(&col_uid)
+    }
+
+    fn row_count(&self) -> usize {
         self.data.len()
     }
 
-    fn show_cell_view(&self, row_mono: usize, col_uid: u32, ui: &mut Ui) {
-        if let Some(row) = self.data.get(row_mono) {
-            if let Some(cell) = row.get(col_uid as usize) {
+    fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid> {
+        Some(RowUid(row_idx.0 as u32))
+    }
+
+    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui) {
+        if let Some(row) = self.data.get(coord.row_uid.0 as usize) {
+            if let Some(cell) = row.get(coord.col_uid.0 as usize) {
+                if coord.row_uid.0 == 2 {
+                    return;
+                }
                 ui.label(cell);
+
+                if coord.row_uid.0 == 3 && coord.col_uid.0 == 1 {
+                    ui.label("Label 2");
+                }
             }
         }
     }
 
-    fn show_cell_editor(&mut self, cell: CellCoord, ui: &mut Ui) -> Option<Response> {
+    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui) -> Option<Response> {
         todo!()
     }
 }
@@ -56,21 +69,27 @@ impl TableVecData {
             data: vec![
                 vec!["Abc............".into(), "Def".into()],
                 vec!["Zyx".into(), "Ghj".into()],
+                vec!["Row2 Col0".into(), "Ghj".into()],
+                vec!["Row3 Col0".into(), "Row3 Col1".into()],
+                vec!["Zyx".into(), "Ghj".into()],
+                vec!["Zyx".into(), "Ghj".into()],
+                vec!["Zyx".into(), "Ghj".into()],
+                vec!["Zyx".into(), "Ghj".into()],
+                vec!["Zyx".into(), "Ghj".into()],
+                vec!["Zyx".into(), "Ghj".into()],
             ],
-            available_columns: vec![
-                BackendColumn {
-                    col_id: 0,
+            available_columns: [
+                (ColumnUid(0), BackendColumn {
                     name: "Col A".to_string(),
                     ty: "String".to_string(),
                     is_sortable: false,
-                },
-                BackendColumn {
-                    col_id: 1,
+                }),
+                (ColumnUid(1), BackendColumn {
                     name: "Col B".to_string(),
                     ty: "String".to_string(),
                     is_sortable: false,
-                },
-            ],
+                }),
+            ].into(),
         }
     }
 }

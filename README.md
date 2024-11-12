@@ -2,8 +2,8 @@ TODO: Add crates and docs badge
 
 # Customizable egui table viewer and editor.
 
-Fast and responsive table viewer and editor, that only shows visible cells. Data backend is fully generic,
-allowing implementations based on vectors to databases.
+Fast and responsive table viewer and editor, that only shows visible rows. Data backend is fully generic,
+allowing implementations based on vectors, files, databases and other data structures.
 
 TODO: Add web demo.
 
@@ -15,17 +15,18 @@ TODO: Add web demo.
   * [ ] CSV support.
   * [ ] XLS support.
 * [ ] Undo / Redo support. 
-* [ ] No need to keep all data in memory (if backend supports it).
+* [x] No need to keep all data in memory (if backend supports it).
 * [ ] Support for sorting.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.
 * [ ] Keyboard shortcuts and navigation.
 * [ ] Copy-paste support for cells and blocks of cells.
 * [ ] Ability to add lints and icons to cells or change their background color.
-* [ ] Support for cells with various heights.
+* [x] Support for cells with various heights.
 * [ ] Drag&drop column reordering.
 * [ ] Export to CSV and XLS.
 * [ ] Stick to bottom mode for viewing real time data.
 * [ ] Visual state can be persisted on disk.
+* [ ] Disable/enable rows and columns (show hatch pattern when disabled).
 
 ## Non-goals
 
