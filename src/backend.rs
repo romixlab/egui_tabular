@@ -31,7 +31,7 @@ pub trait TableBackend {
     // Fetch all remote data without waiting fot it to be queried
     // fn fetch_all(&mut self);
     // fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
-    /// Clear all row data from memory.
+    /// Clear all row data from memory, but leave the columns' info.
     fn clear(&mut self);
 
     /// Send to server or write to disk all the changes made while commit_immediately was false.

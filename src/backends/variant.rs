@@ -12,6 +12,7 @@ pub struct VariantBackend {
     next_row_uid: RowUid,
     columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
     persistent_flags: PersistentFlags,
+    one_shot_flags: OneShotFlags,
 }
 
 struct VariantColumn {
@@ -20,7 +21,7 @@ struct VariantColumn {
 }
 
 impl VariantBackend {
-    pub fn new(columns: impl Iterator<Item = (String, VariantTy, Option<Variant>)>) -> Self {
+    pub fn new(columns: impl IntoIterator<Item = (String, VariantTy, Option<Variant>)>) -> Self {
         VariantBackend {
             cell_data: Default::default(),
             row_order: vec![],
@@ -45,10 +46,11 @@ impl VariantBackend {
                 row_set_present: true,
                 ..Default::default()
             },
+            one_shot_flags: OneShotFlags::default(),
         }
     }
 
-    pub fn insert_row(&mut self, values: impl Iterator<Item = (ColumnUid, Variant)>) {
+    pub fn insert_row(&mut self, values: impl IntoIterator<Item = (ColumnUid, Variant)>) {
         for (col_uid, v) in values {
             let coord = CellCoord {
                 row_uid: self.next_row_uid,
@@ -59,11 +61,36 @@ impl VariantBackend {
         self.row_order.push(self.next_row_uid);
         self.next_row_uid = RowUid(self.next_row_uid.0 + 1)
     }
+
+    /// Remove all columns and all data
+    pub fn remove_all_columns(&mut self) {
+        self.columns.clear();
+        self.clear();
+    }
+
+    pub fn insert_column(
+        &mut self,
+        col_uid: ColumnUid,
+        name: String,
+        ty: VariantTy,
+        default: Option<Variant>,
+    ) {
+        let backend_column = BackendColumn {
+            name,
+            ty: format!("{ty}"),
+            is_sortable: true,
+        };
+        let variant_column = VariantColumn { ty, default };
+        self.columns
+            .insert(col_uid, (backend_column, variant_column));
+    }
 }
 
 impl TableBackend for VariantBackend {
     fn clear(&mut self) {
         self.cell_data.clear();
+        self.row_order.clear();
+        self.next_row_uid = RowUid(0);
     }
 
     fn persistent_flags(&self) -> &PersistentFlags {
@@ -71,11 +98,11 @@ impl TableBackend for VariantBackend {
     }
 
     fn one_shot_flags(&self) -> &OneShotFlags {
-        todo!()
+        &self.one_shot_flags
     }
 
     fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags {
-        todo!()
+        &mut self.one_shot_flags
     }
 
     fn available_columns(&self) -> impl Iterator<Item = ColumnUid> {

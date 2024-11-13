@@ -1,14 +1,21 @@
-use super::csv::{CsvBackend, Separator};
+use super::csv::{CsvImporter, Separator};
+use crate::backends::variant::VariantBackend;
+use crate::{RequiredColumns, TableView};
 use egui::{RichText, Slider, Ui};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use strum::IntoEnumIterator;
 
-pub struct CsvBackendUi {
+pub struct CsvXlsImporter {
+    csv: CsvImporter,
+    backend: VariantBackend,
+    table_view: TableView,
     state: PersistentState,
     picked_file: Option<PathBuf>,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Serialize, Deserialize)]
 struct PersistentState {
     separator: Separator,
     has_headers: bool,
@@ -25,26 +32,29 @@ impl Default for PersistentState {
     }
 }
 
-impl CsvBackendUi {
-    pub fn new() -> Self {
-        CsvBackendUi {
+impl CsvXlsImporter {
+    pub fn new(required_columns: RequiredColumns) -> Self {
+        CsvXlsImporter {
+            csv: CsvImporter::new(required_columns),
+            backend: VariantBackend::new([]),
+            table_view: TableView::new(),
             state: PersistentState::default(),
             picked_file: None,
         }
     }
 
-    pub fn show(&mut self, csv_backend: &mut CsvBackend, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("CSV Options").strong().monospace());
 
             if ui.button("Open file…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     self.picked_file = Some(path);
-                    self.try_load(csv_backend);
+                    self.try_load();
                 }
             }
             if ui.button("Reload").clicked() {
-                self.try_load(csv_backend);
+                self.try_load();
             }
             ui.separator();
 
@@ -61,13 +71,13 @@ impl CsvBackendUi {
                 })
                 .inner;
             if let Some(true) = delim_changed {
-                self.try_load(csv_backend);
+                self.try_load();
             }
             if ui
                 .checkbox(&mut self.state.has_headers, "Has header row")
                 .changed()
             {
-                self.try_load(csv_backend);
+                self.try_load();
             }
 
             ui.separator();
@@ -76,23 +86,24 @@ impl CsvBackendUi {
                 .on_hover_text("If file contains additional rows before header row, skip them")
                 .changed()
             {
-                self.try_load(csv_backend);
+                self.try_load();
             }
             ui.separator();
         });
-        if csv_backend.status().is_error() {
+        if self.csv.status().is_error() {
             // error_label(csv_table.status(), ui);
-            ui.label(format!("{:?}", csv_backend.status()));
+            ui.label(format!("{:?}", self.csv.status()));
         }
+        self.table_view.show(&mut self.backend, ui);
     }
 
-    fn try_load(&mut self, csv_backend: &mut CsvBackend) {
+    fn try_load(&mut self) {
         let Some(path) = self.picked_file.clone() else {
             return;
         };
-        csv_backend.set_separator(self.state.separator);
-        csv_backend.skip_rows_on_load(self.state.skip_first_rows);
-        csv_backend.load(path);
+        self.csv.set_separator(self.state.separator);
+        self.csv.skip_rows_on_load(self.state.skip_first_rows);
+        self.csv.load(path, &mut self.backend);
     }
 
     pub fn has_warnings(&self) -> bool {
@@ -101,5 +112,13 @@ impl CsvBackendUi {
 
     pub fn picked_file(&self) -> Option<PathBuf> {
         self.picked_file.clone()
+    }
+
+    pub fn backend(&self) -> &VariantBackend {
+        &self.backend
+    }
+
+    pub fn backend_mut(&mut self) -> &mut VariantBackend {
+        &mut self.backend
     }
 }

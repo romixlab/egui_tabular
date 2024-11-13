@@ -1,34 +1,18 @@
-use egui_tabular::backend::ColumnUid;
-use egui_tabular::backends::variant::VariantBackend;
-use egui_tabular::rvariant::{Variant, VariantTy};
-use egui_tabular::TableView;
+use egui_tabular::rvariant::VariantTy;
+use egui_tabular::{CsvXlsImporter, RequiredColumn, RequiredColumns, TableView};
 
 struct SimpleApp {
-    backend: VariantBackend,
-    viewer: TableView,
+    importer: CsvXlsImporter,
 }
 
 impl Default for SimpleApp {
     fn default() -> Self {
-        let mut backend = VariantBackend::new([
-            (
-                "Name".into(),
-                VariantTy::Str,
-                Some(Variant::Str("Default name".into())),
-            ),
-            ("Count".into(), VariantTy::U32, Some(Variant::U32(0))),
+        let required_columns = RequiredColumns::new([
+            RequiredColumn::new("key", VariantTy::Str).synonyms(["parameter", "parameter_name"]),
+            RequiredColumn::new("value", VariantTy::U32),
         ]);
-        let mut rng = fastrand::Rng::new();
-        let mut name_gen = names::Generator::with_naming(names::Name::Numbered);
-        for _ in 0..10_000 {
-            backend.insert_row([
-                (ColumnUid(0), Variant::Str(name_gen.next().unwrap())),
-                (ColumnUid(1), Variant::U32(rng.u32(0..=1000))),
-            ]);
-        }
         Self {
-            backend,
-            viewer: TableView::new(),
+            importer: CsvXlsImporter::new(required_columns),
         }
     }
 }
@@ -50,7 +34,7 @@ impl eframe::App for SimpleApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.viewer.show(&mut self.backend, ui);
+            self.importer.show(ui);
         });
     }
 }

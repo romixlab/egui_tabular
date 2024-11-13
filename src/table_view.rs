@@ -2,7 +2,6 @@ mod config;
 mod state;
 
 use crate::backend::{CellCoord, ColumnUid, TableBackend, VisualRowIdx};
-use egui::ahash::HashMap;
 use egui::{Label, PointerButton, Response, ScrollArea, Sense, Ui, Widget};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
@@ -23,6 +22,10 @@ impl TableView {
     }
 
     pub fn show(&mut self, backend: &mut impl TableBackend, ui: &mut Ui) -> Response {
+        if backend.used_columns().next().is_none() {
+            return ui.label("No columns");
+        }
+
         let ctx = &ui.ctx().clone();
         let ui_id = ui.id();
         let style = ui.style().clone();

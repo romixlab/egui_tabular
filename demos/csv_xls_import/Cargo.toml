@@ -1,0 +1,16 @@
+[package]
+name = "csv_xls_import"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.29"
+egui_extras = { version = "0.29", default-features = false, features = [
+    "serde",
+] }
+eframe = { version = "0.29", features = ["serde", "persistence"] }
+egui_tabular = { path = "../.." }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"

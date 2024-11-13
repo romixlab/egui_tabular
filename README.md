@@ -9,9 +9,9 @@ TODO: Add web demo.
 
 ## Features
 
-* [x] Cells UI and table information is provided through the TableBackend trait.
+* [x] Cells UI and table information is provided through the [TableBackend](src/backend.rs) trait.
 * [x] Custom cell viewer and editor ui, any egui or user widgets can be used.
-* [x] Built-in cell viewers and editors through VariantBackend:
+* [x] Built-in cell viewers and editors through [VariantBackend](src/backends/variant.rs):
     * [x] String, string list, numbers, booleans, custom enums
     * [ ] Date, SI values, currency
 * [ ] Data import with automatic column mapping based on names.
