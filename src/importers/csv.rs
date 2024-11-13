@@ -1,5 +1,5 @@
 use super::required_column::RequiredColumns;
-use crate::backend::{ColumnUid, OneShotFlags, PersistentFlags, TableBackend};
+use crate::backend::{ColumnUid, TableBackend};
 use crate::backends::variant::VariantBackend;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};

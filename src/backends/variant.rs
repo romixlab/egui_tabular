@@ -16,7 +16,7 @@ pub struct VariantBackend {
 }
 
 struct VariantColumn {
-    ty: VariantTy,
+    _ty: VariantTy,
     default: Option<Variant>,
 }
 
@@ -36,7 +36,7 @@ impl VariantBackend {
                         ty: format!("{ty}"),
                         is_sortable: true,
                     };
-                    let variant_column = VariantColumn { ty, default };
+                    let variant_column = VariantColumn { _ty: ty, default };
                     (col_uid, (backend_column, variant_column))
                 })
                 .collect(),
@@ -54,12 +54,25 @@ impl VariantBackend {
     }
 
     pub fn insert_row(&mut self, values: impl IntoIterator<Item = (ColumnUid, Variant)>) {
+        let mut provided_cells = vec![];
         for (col_uid, v) in values {
             let coord = CellCoord {
                 row_uid: self.next_row_uid,
                 col_uid,
             };
             self.cell_data.insert(coord, v);
+            provided_cells.push(col_uid);
+        }
+        for (col_uid, (_, col)) in &self.columns {
+            if let Some(default) = &col.default {
+                if !provided_cells.contains(col_uid) {
+                    let coord = CellCoord {
+                        row_uid: self.next_row_uid,
+                        col_uid: *col_uid,
+                    };
+                    self.cell_data.insert(coord, default.clone());
+                }
+            }
         }
         self.row_order.push(self.next_row_uid);
         self.next_row_uid = RowUid(self.next_row_uid.0 + 1)
@@ -84,7 +97,7 @@ impl VariantBackend {
             ty: format!("{ty}"),
             is_sortable: true,
         };
-        let variant_column = VariantColumn { ty, default };
+        let variant_column = VariantColumn { _ty: ty, default };
         self.columns
             .insert(col_uid, (backend_column, variant_column));
         self.one_shot_flags.column_info_updated = true;
@@ -160,7 +173,7 @@ impl TableBackend for VariantBackend {
         }
     }
 
-    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui) -> Option<Response> {
+    fn show_cell_editor(&mut self, _coord: CellCoord, _ui: &mut Ui) -> Option<Response> {
         todo!()
     }
 }

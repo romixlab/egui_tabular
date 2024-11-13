@@ -1,5 +1,5 @@
 use egui_tabular::rvariant::VariantTy;
-use egui_tabular::{CsvXlsImporter, RequiredColumn, RequiredColumns, TableView};
+use egui_tabular::{CsvXlsImporter, RequiredColumn, RequiredColumns};
 
 struct SimpleApp {
     importer: CsvXlsImporter,

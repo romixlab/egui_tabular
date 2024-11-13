@@ -98,7 +98,7 @@ impl RequiredColumns {
     pub fn get(&self, col_uid: ColumnUid) -> Option<&RequiredColumn> {
         self.required_columns
             .iter()
-            .find(|(uid, c)| *uid == col_uid)
+            .find(|(uid, _)| *uid == col_uid)
             .map(|(_, c)| c)
     }
 }

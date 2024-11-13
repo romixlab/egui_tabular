@@ -2,7 +2,8 @@ mod config;
 mod state;
 
 use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
-use egui::{Label, PointerButton, Response, ScrollArea, Sense, Ui, Widget};
+use crate::table_view::state::SelectedRange;
+use egui::{Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui, Widget};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
@@ -40,7 +41,7 @@ impl TableView {
         let ui_layer_id = ui.layer_id();
         let mut resp_total = None::<Response>;
         let mut resp_ret = None::<Response>;
-        /// Temporarily take out columns Vec, to satisfy borrow checker.
+        // Temporarily take out columns Vec, to satisfy borrow checker.
         let columns = core::mem::take(&mut self.state.columns);
         let mut swap_columns = None;
         // self.frame_n += 1;
@@ -154,13 +155,18 @@ impl TableView {
 
         self.state.columns = columns.tap_mut(|columns| {
             if let Some((c1, c2)) = swap_columns {
-                Self::swap_columns(columns, c1, c2);
+                Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
             }
         });
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
-    fn swap_columns(columns: &mut Vec<ColumnUid>, c1: ColumnUid, c2: ColumnUid) {
+    fn swap_columns(
+        columns: &mut Vec<ColumnUid>,
+        c1: ColumnUid,
+        c2: ColumnUid,
+        selected_range: &mut Option<SelectedRange>,
+    ) {
         let c1_idx = columns
             .iter()
             .enumerate()
@@ -173,6 +179,15 @@ impl TableView {
             .map(|(idx, _)| idx);
         if let (Some(c1_idx), Some(c2_idx)) = (c1_idx, c2_idx) {
             columns.swap(c1_idx, c2_idx);
+            if let Some(r) = selected_range {
+                if r.is_single_cell() {
+                    // Keep selection if only one cell was selected, but adjust accordingly
+                    r.swap_col(c1_idx, c2_idx);
+                } else if !(r.contains_col(c1_idx) && r.contains_col(c2_idx)) {
+                    // Deselect if column was dragged outside current selection
+                    *selected_range = None;
+                }
+            }
         }
     }
 
@@ -182,39 +197,73 @@ impl TableView {
         body: TableBody<'_>,
         mut _painter: egui::Painter,
         _commands: (),
-        _ctx: &egui::Context,
+        ctx: &egui::Context,
         style: &egui::Style,
         _ui_id: egui::Id,
         columns: &[ColumnUid],
         mut resp_total: Option<Response>,
     ) -> Option<Response> {
         let visual = &style.visuals;
-        let row_heights = core::mem::take(&mut self.state.row_heights);
+        let s = &mut self.state;
+        let row_heights = core::mem::take(&mut s.row_heights);
         let mut row_heights_updates = Vec::new();
+        // let pointer_primary_down = ctx.input(|i| i.pointer.button_down(PointerButton::Primary));
 
         let render_fn = |mut row: egui_extras::TableRow| {
-            let visual_row_idx = VisualRowIdx(row.index());
-            let row_uid = backend.row_uid(visual_row_idx).unwrap();
+            let row_idx = row.index();
+            let row_uid = backend.row_uid(VisualRowIdx(row_idx)).unwrap();
+            let is_editing_cell_on_this_row = s
+                .selected_range
+                .map(|r| r.is_editing() && r.contains_row(row_idx))
+                .unwrap_or(false);
+            if is_editing_cell_on_this_row {
+                row.set_selected(true);
+            }
 
             let mut next_frame_row_height = self.config.minimum_row_height;
-            for col_uid in columns.iter().copied() {
-                let is_editing = false;
-                let cci_selected = false;
-                row.set_selected(is_editing || cci_selected);
+            for (col_idx, col_uid) in columns.iter().copied().enumerate() {
+                let current_cell = SelectedRange::single(row_idx, col_idx);
+                let (
+                    is_first_row_in_selection,
+                    is_last_row_in_selection,
+                    is_current_cell_in_selection,
+                    is_editing_current_cell,
+                ) = s
+                    .selected_range
+                    .map(|r| {
+                        (
+                            r.row_start() == row_idx,
+                            r.row_end() == row_idx,
+                            r.contains(row_idx, col_idx),
+                            r.is_editing() && r == current_cell,
+                        )
+                    })
+                    .unwrap_or((false, false, false, false));
+                let (rect, resp) = row.col(|ui| {
+                    let ui_max_rect = ui.max_rect();
 
-                let (rect, _resp) = row.col(|ui| {
-                    // let ui_max_rect = ui.max_rect();
+                    if is_current_cell_in_selection && !is_editing_cell_on_this_row {
+                        // Light orange background inside selection
+                        ui.painter().rect_filled(
+                            ui_max_rect.expand(0.),
+                            Rounding::ZERO,
+                            visual.warn_fg_color.gamma_multiply(0.2),
+                        );
+                    }
 
-                    // if is_interactive_cell {
-                    //     ui.painter().rect_filled(
-                    //         ui_max_rect.expand(3.),
-                    //         no_rounding,
-                    //         visual.warn_fg_color.gamma_multiply(0.2),
-                    //     );
-                    // } else if !cci_selected && selected {
-                    //     ui.painter()
-                    //         .rect_filled(ui_max_rect, no_rounding, visual.extreme_bg_color);
-                    // }
+                    // Lines on first and last row of selection
+                    let st = Stroke {
+                        width: 1.,
+                        color: visual.warn_fg_color.gamma_multiply(0.5),
+                    };
+                    let xr = ui_max_rect.x_range();
+                    let yr = ui_max_rect.y_range();
+                    if is_first_row_in_selection {
+                        ui.painter().hline(xr, yr.min, st);
+                    }
+                    if is_last_row_in_selection {
+                        ui.painter().hline(xr, yr.max, st);
+                    }
 
                     ui.style_mut()
                         .visuals
@@ -223,14 +272,33 @@ impl TableView {
                         .fg_stroke
                         .color = visual.strong_text_color();
 
-                    ui.add_enabled_ui(false, |ui| {
-                        backend.show_cell_view(CellCoord { row_uid, col_uid }, ui);
-                    });
+                    if is_editing_current_cell {
+                        // backend.show_cell_editor(CellCoord { row_uid, col_uid }, ui);
+                    } else {
+                        ui.add_enabled_ui(false, |ui| {
+                            backend.show_cell_view(CellCoord { row_uid, col_uid }, ui);
+                        });
+                    }
                 });
-                // if row_uid.0 == 2 {
-                //     println!("{}", rect.height());
-                // }
                 next_frame_row_height = rect.height().max(next_frame_row_height);
+
+                if resp.clicked_by(PointerButton::Primary) {
+                    if let Some(r) = &mut s.selected_range {
+                        if ctx.input(|i| i.modifiers.shift) {
+                            r.stretch_to(row_idx, col_idx);
+                        } else {
+                            if *r == current_cell {
+                                println!("edit");
+                                r.set_editing(true);
+                            } else {
+                                s.selected_range = Some(current_cell);
+                            }
+                        }
+                    } else {
+                        s.selected_range = Some(current_cell);
+                    }
+                }
+                if resp.double_clicked_by(PointerButton::Primary) {}
             } // for col_uid in used_columns
 
             if self.config.use_heterogeneous_row_heights {
@@ -263,7 +331,7 @@ impl TableView {
                 render_fn,
             );
 
-            self.state.row_heights = row_heights.tap_mut(|row_heights| {
+            s.row_heights = row_heights.tap_mut(|row_heights| {
                 for (row_uid, next_frame_row_height) in row_heights_updates {
                     row_heights.insert(row_uid, next_frame_row_height);
                 }
