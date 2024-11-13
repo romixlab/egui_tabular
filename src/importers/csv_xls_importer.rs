@@ -34,9 +34,15 @@ impl Default for PersistentState {
 
 impl CsvXlsImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
+        let backend = VariantBackend::new(
+            required_columns
+                .required_columns
+                .iter()
+                .map(|(_, c)| (c.name.clone(), c.ty, c.default.clone())),
+        );
         CsvXlsImporter {
             csv: CsvImporter::new(required_columns),
-            backend: VariantBackend::new([]),
+            backend,
             table_view: TableView::new(),
             state: PersistentState::default(),
             picked_file: None,

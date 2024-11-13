@@ -46,7 +46,10 @@ impl VariantBackend {
                 row_set_present: true,
                 ..Default::default()
             },
-            one_shot_flags: OneShotFlags::default(),
+            one_shot_flags: OneShotFlags {
+                column_info_updated: true,
+                ..Default::default()
+            },
         }
     }
 
@@ -66,6 +69,7 @@ impl VariantBackend {
     pub fn remove_all_columns(&mut self) {
         self.columns.clear();
         self.clear();
+        self.one_shot_flags.column_info_updated = true;
     }
 
     pub fn insert_column(
@@ -83,6 +87,7 @@ impl VariantBackend {
         let variant_column = VariantColumn { ty, default };
         self.columns
             .insert(col_uid, (backend_column, variant_column));
+        self.one_shot_flags.column_info_updated = true;
     }
 }
 

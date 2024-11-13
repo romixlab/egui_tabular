@@ -9,7 +9,7 @@ pub struct RequiredColumn {
 }
 
 pub struct RequiredColumns {
-    required_columns: Vec<(ColumnUid, RequiredColumn)>,
+    pub(crate) required_columns: Vec<(ColumnUid, RequiredColumn)>,
 }
 
 impl RequiredColumn {
