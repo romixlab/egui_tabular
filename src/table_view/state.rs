@@ -18,13 +18,22 @@ impl Default for State {
 }
 
 /// All indices are from 0 to row or column count currently in view
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, Debug)]
 pub(crate) struct SelectedRange {
     row_start: usize,
     row_end: usize,
     col_start: usize,
     col_end: usize,
     is_editing: bool,
+}
+
+impl PartialEq for SelectedRange {
+    fn eq(&self, other: &Self) -> bool {
+        self.row_start == other.row_start
+            && self.row_end == other.row_end
+            && self.col_start == other.col_start
+            && self.col_end == other.col_end
+    }
 }
 
 impl SelectedRange {

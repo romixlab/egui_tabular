@@ -75,7 +75,8 @@ pub trait TableBackend {
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
 
     fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui);
-    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
+    fn show_cell_editor(&self, coord: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
+    fn commit_cell_edit(&mut self, coord: CellCoord);
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);

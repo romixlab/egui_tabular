@@ -3,7 +3,7 @@ mod state;
 
 use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
 use crate::table_view::state::SelectedRange;
-use egui::{Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui, Widget};
+use egui::{Key, Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui, Widget};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
@@ -91,7 +91,7 @@ impl TableView {
                                 egui::popup::show_tooltip_text(
                                     ctx,
                                     ui_layer_id,
-                                    "_EGUI_TABULAR__COLUMN_MOVE__".into(),
+                                    "_egui_tabular_column_move".into(),
                                     backend_column.name.as_str(),
                                 );
                             }
@@ -208,6 +208,7 @@ impl TableView {
         let row_heights = core::mem::take(&mut s.row_heights);
         let mut row_heights_updates = Vec::new();
         // let pointer_primary_down = ctx.input(|i| i.pointer.button_down(PointerButton::Primary));
+        let mut commit_edit = None;
 
         let render_fn = |mut row: egui_extras::TableRow| {
             let row_idx = row.index();
@@ -273,7 +274,14 @@ impl TableView {
                         .color = visual.strong_text_color();
 
                     if is_editing_current_cell {
-                        // backend.show_cell_editor(CellCoord { row_uid, col_uid }, ui);
+                        let coord = CellCoord { row_uid, col_uid };
+                        let _resp = backend.show_cell_editor(coord, ui);
+                        if ui.input(|i| i.key_pressed(Key::Enter)) {
+                            commit_edit = Some(coord)
+                        }
+                        if ui.input(|i| i.key_pressed(Key::Escape)) {
+                            s.selected_range = None;
+                        }
                     } else {
                         ui.add_enabled_ui(false, |ui| {
                             backend.show_cell_view(CellCoord { row_uid, col_uid }, ui);
@@ -288,7 +296,6 @@ impl TableView {
                             r.stretch_to(row_idx, col_idx);
                         } else {
                             if *r == current_cell {
-                                println!("edit");
                                 r.set_editing(true);
                             } else {
                                 s.selected_range = Some(current_cell);
@@ -342,6 +349,11 @@ impl TableView {
                 backend.row_count(),
                 render_fn,
             );
+        }
+
+        if let Some(coord) = commit_edit {
+            backend.commit_cell_edit(coord);
+            s.selected_range = None;
         }
 
         resp_total

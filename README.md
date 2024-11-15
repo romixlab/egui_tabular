@@ -14,8 +14,8 @@ TODO: Add web demo.
 * [x] Built-in cell viewers and editors through [VariantBackend](src/backends/variant.rs):
     * [x] String, string list, numbers, booleans, custom enums
     * [ ] Date, SI values, currency
-* [ ] Data import with automatic column mapping based on names.
-    * [ ] CSV support.
+* [x] Data import with automatic column mapping based on names.
+    * [x] CSV support.
     * [ ] XLS support.
 * [ ] Undo / Redo support.
 * [x] No need to keep all data in memory (if backend supports it).
@@ -25,7 +25,7 @@ TODO: Add web demo.
 * [ ] Copy-paste support for cells and blocks of cells.
 * [ ] Ability to add lints and icons to cells or change their background color.
 * [x] Support for cells with various heights.
-* [ ] Drag&drop column reordering.
+* [x] Drag&drop column reordering.
 * [ ] Export to CSV and XLS.
 * [ ] Stick to bottom mode for viewing real time data.
 * [ ] Visual state can be persisted on disk.
@@ -37,10 +37,8 @@ TODO: Add web demo.
 
 ## Potential features
 
-* Provide an optional way to access data from code (as rvariant, separate trait?).
 * Gate egui behind gui feature, disable it to work with data types and formats only.
 * Derive macro to map Rust structs into rows of typed cells.
-* Propagate change and other events to user code.
 
 ## Project status
 
