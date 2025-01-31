@@ -100,7 +100,7 @@ impl TableView {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
                                         resp.rect,
-                                        egui::Rounding::ZERO,
+                                        Rounding::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.2),
                                     );
                                 }
@@ -115,7 +115,7 @@ impl TableView {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
                                         resp.rect,
-                                        egui::Rounding::ZERO,
+                                        Rounding::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.5),
                                     );
                                 }
