@@ -113,10 +113,12 @@ impl TableView {
                                 );
                             }
 
+                            let mut rect_fix = resp.rect;
+                            rect_fix.set_height(rect_fix.height() * 0.66);
                             if resp.hovered() && backend_column.is_sortable {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
-                                        resp.rect,
+                                        rect_fix,
                                         Rounding::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.2),
                                     );
@@ -131,7 +133,7 @@ impl TableView {
                             if resp.dnd_hover_payload::<ColumnUid>().is_some() {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
-                                        resp.rect,
+                                        rect_fix,
                                         Rounding::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.5),
                                     );
