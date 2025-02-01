@@ -35,8 +35,11 @@ impl VariantBackend {
                     let col_uid = ColumnUid(idx as u32);
                     let backend_column = BackendColumn {
                         name,
+                        synonyms: vec![],
                         ty: format!("{ty}"),
                         is_sortable: true,
+                        is_required: true,
+                        is_used: true,
                     };
                     let variant_column = VariantColumn { ty: ty, default };
                     (col_uid, (backend_column, variant_column))
@@ -92,13 +95,19 @@ impl VariantBackend {
         &mut self,
         col_uid: ColumnUid,
         name: String,
+        synonyms: Vec<String>,
         ty: VariantTy,
         default: Option<Variant>,
+        is_required: bool,
+        is_used: bool,
     ) {
         let backend_column = BackendColumn {
             name,
+            synonyms,
             ty: format!("{ty}"),
             is_sortable: true,
+            is_required,
+            is_used,
         };
         let variant_column = VariantColumn { ty: ty, default };
         self.columns

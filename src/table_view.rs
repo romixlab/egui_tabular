@@ -3,7 +3,7 @@ mod state;
 
 use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
 use crate::table_view::state::SelectedRange;
-use egui::{Key, Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui, Widget};
+use egui::{Key, Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
@@ -74,9 +74,26 @@ impl TableView {
                             let mut painter = None;
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
-                                Label::new(backend_column.name.as_str())
-                                    .selectable(false)
-                                    .ui(ui);
+                                let col_name =
+                                    Label::new(backend_column.name.as_str()).selectable(false);
+                                ui.add(col_name).on_hover_ui(|ui| {
+                                    if backend_column.is_required {
+                                        ui.label("Required column, synonyms:");
+                                        for synonym_name in &backend_column.synonyms {
+                                            ui.horizontal(|ui| {
+                                                ui.label(synonym_name);
+                                                ui.label("or");
+                                                ui.label(synonym_name.to_lowercase());
+                                            });
+                                        }
+                                    } else {
+                                        if backend_column.is_used {
+                                            ui.label("Additional column, used");
+                                        } else {
+                                            ui.label("Additional column, not used");
+                                        }
+                                    }
+                                });
                                 // });
 
                                 if painter.is_none() {

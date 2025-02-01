@@ -44,7 +44,7 @@ impl RequiredColumn {
     pub fn synonyms<'a>(self, synonyms: impl IntoIterator<Item = &'a str>) -> Self {
         RequiredColumn {
             name: self.name,
-            synonyms: synonyms.into_iter().map(|s| s.to_lowercase()).collect(),
+            synonyms: synonyms.into_iter().map(|s| s.to_string()).collect(),
             ty: self.ty,
             default: self.default,
         }
@@ -60,7 +60,10 @@ impl RequiredColumn {
     }
 
     fn contains_in_synonyms(&self, name: &str) -> bool {
-        self.synonyms.iter().find(|s| s.as_str() == name).is_some()
+        self.synonyms
+            .iter()
+            .find(|s| s.to_lowercase() == name)
+            .is_some()
     }
 }
 

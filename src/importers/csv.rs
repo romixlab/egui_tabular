@@ -207,7 +207,15 @@ impl CsvImporter {
                 }
                 csv_to_col_uid.insert(csv_col_idx, col_uid);
             }
-            backend.insert_column(col_uid, col.name.clone(), col.ty, col.default.clone());
+            backend.insert_column(
+                col_uid,
+                col.name.clone(),
+                col.synonyms.clone(),
+                col.ty,
+                col.default.clone(),
+                true,
+                true,
+            );
         }
 
         // Put all additional columns to the right of required ones
@@ -217,8 +225,11 @@ impl CsvImporter {
                 backend.insert_column(
                     next_absent_col_uid,
                     column.to_string(),
+                    vec![],
                     VariantTy::Str,
                     None,
+                    false,
+                    false,
                 );
                 next_absent_col_uid = ColumnUid(next_absent_col_uid.0 + 1);
             }

@@ -21,8 +21,11 @@ pub struct CellCoord {
 // #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
 pub struct BackendColumn {
     pub name: String,
+    pub synonyms: Vec<String>,
     pub ty: String,
     pub is_sortable: bool,
+    pub is_required: bool,
+    pub is_used: bool,
 }
 
 pub trait TableBackend {

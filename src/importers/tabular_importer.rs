@@ -34,12 +34,23 @@ impl Default for PersistentState {
 
 impl TabularImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
-        let backend = VariantBackend::new(
-            required_columns
-                .required_columns
-                .iter()
-                .map(|(_, c)| (c.name.clone(), c.ty, c.default.clone())),
-        );
+        let mut backend = VariantBackend::new([]);
+        //     required_columns
+        //         .required_columns
+        //         .iter()
+        //         .map(|(_, c)| (c.name.clone(), c.ty, c.default.clone())),
+        // );
+        for (uid, r) in required_columns.required_columns.iter() {
+            backend.insert_column(
+                *uid,
+                r.name.clone(),
+                r.synonyms.clone(),
+                r.ty,
+                r.default.clone(),
+                true,
+                true,
+            );
+        }
         TabularImporter {
             csv: CsvImporter::new(required_columns),
             backend,
