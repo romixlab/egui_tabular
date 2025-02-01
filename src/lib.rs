@@ -7,8 +7,8 @@ pub mod backends;
 
 // #[cfg(feature = "gui")]
 pub mod importers;
-pub use importers::csv_xls_importer::CsvXlsImporter;
 pub use importers::required_column::{RequiredColumn, RequiredColumns};
+pub use importers::tabular_importer::TabularImporter;
 pub mod table_view;
 
 pub use rvariant;

@@ -1,6 +1,7 @@
 use crate::backend::ColumnUid;
 use rvariant::{Variant, VariantTy};
 
+#[derive(Debug)]
 pub struct RequiredColumn {
     pub name: String,
     pub synonyms: Vec<String>,
@@ -84,7 +85,10 @@ impl RequiredColumns {
             if let Some(idx) = column_names
                 .iter()
                 .enumerate()
-                .find(|(_, n)| **n == col_name_lower.as_str() || col.contains_in_synonyms(**n))
+                .find(|(_, n)| {
+                    let n = n.to_lowercase();
+                    n == col_name_lower.as_str() || col.contains_in_synonyms(&n)
+                })
                 .map(|(idx, _)| idx)
             {
                 map.push(((*col_uid, col), Some(idx)));

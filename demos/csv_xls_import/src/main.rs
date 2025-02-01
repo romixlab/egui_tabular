@@ -1,8 +1,8 @@
 use egui_tabular::rvariant::VariantTy;
-use egui_tabular::{CsvXlsImporter, RequiredColumn, RequiredColumns};
+use egui_tabular::{RequiredColumn, RequiredColumns, TabularImporter};
 
 struct SimpleApp {
-    importer: CsvXlsImporter,
+    importer: TabularImporter,
 }
 
 impl Default for SimpleApp {
@@ -12,7 +12,7 @@ impl Default for SimpleApp {
             RequiredColumn::new("value", VariantTy::U32),
         ]);
         Self {
-            importer: CsvXlsImporter::new(required_columns),
+            importer: TabularImporter::new(required_columns),
         }
     }
 }

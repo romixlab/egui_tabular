@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use strum::IntoEnumIterator;
 
-pub struct CsvXlsImporter {
+pub struct TabularImporter {
     csv: CsvImporter,
     backend: VariantBackend,
     table_view: TableView,
@@ -32,7 +32,7 @@ impl Default for PersistentState {
     }
 }
 
-impl CsvXlsImporter {
+impl TabularImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
         let backend = VariantBackend::new(
             required_columns
@@ -40,7 +40,7 @@ impl CsvXlsImporter {
                 .iter()
                 .map(|(_, c)| (c.name.clone(), c.ty, c.default.clone())),
         );
-        CsvXlsImporter {
+        TabularImporter {
             csv: CsvImporter::new(required_columns),
             backend,
             table_view: TableView::new(),
@@ -64,7 +64,8 @@ impl CsvXlsImporter {
             }
             ui.separator();
 
-            let delim_changed = egui::ComboBox::from_label("Separator")
+            ui.label("Separator:");
+            let delim_changed = egui::ComboBox::from_label("")
                 .selected_text(format!("{}", self.state.separator))
                 .show_ui(ui, |ui| {
                     let mut changed = false;
@@ -87,8 +88,9 @@ impl CsvXlsImporter {
             }
 
             ui.separator();
+            ui.label("Skip first rows:");
             if ui
-                .add(Slider::new(&mut self.state.skip_first_rows, 0..=10).text("Skip first rows"))
+                .add(Slider::new(&mut self.state.skip_first_rows, 0..=10))
                 .on_hover_text("If file contains additional rows before header row, skip them")
                 .changed()
             {

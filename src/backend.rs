@@ -8,7 +8,7 @@ pub struct RowUid(pub u32);
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct ColumnUid(pub u32);
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
