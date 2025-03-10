@@ -114,6 +114,10 @@ impl VariantBackend {
             .insert(col_uid, (backend_column, variant_column));
         self.one_shot_flags.column_info_updated = true;
     }
+
+    pub fn get(&self, coord: CellCoord) -> Option<&Variant> {
+        self.cell_data.get(&coord)
+    }
 }
 
 impl TableBackend for VariantBackend {
