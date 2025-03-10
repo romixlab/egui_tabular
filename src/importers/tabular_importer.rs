@@ -8,8 +8,8 @@ use strum::IntoEnumIterator;
 
 pub struct TabularImporter {
     csv: CsvImporter,
-    backend: VariantBackend,
-    table_view: TableView,
+    pub backend: VariantBackend,
+    pub table_view: TableView,
     state: PersistentState,
     picked_file: Option<PathBuf>,
 }
@@ -60,17 +60,20 @@ impl TabularImporter {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui) -> bool {
+        let mut reloaded = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("CSV Options").strong().monospace());
 
             if ui.button("Open file…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     self.picked_file = Some(path);
+                    reloaded = true;
                     self.try_load();
                 }
             }
             if ui.button("Reload").clicked() {
+                reloaded = true;
                 self.try_load();
             }
             ui.separator();
@@ -89,12 +92,14 @@ impl TabularImporter {
                 })
                 .inner;
             if let Some(true) = delim_changed {
+                reloaded = true;
                 self.try_load();
             }
             if ui
                 .checkbox(&mut self.state.has_headers, "Has header row")
                 .changed()
             {
+                reloaded = true;
                 self.try_load();
             }
 
@@ -105,6 +110,7 @@ impl TabularImporter {
                 .on_hover_text("If file contains additional rows before header row, skip them")
                 .changed()
             {
+                reloaded = true;
                 self.try_load();
             }
             ui.separator();
@@ -114,6 +120,7 @@ impl TabularImporter {
             ui.label(format!("{:?}", self.csv.status()));
         }
         self.table_view.show(&mut self.backend, ui);
+        reloaded
     }
 
     fn try_load(&mut self) {
