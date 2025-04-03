@@ -4,15 +4,15 @@ use crate::backend::{
 };
 use egui::{ComboBox, DragValue, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
-use std::cell::Cell;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
     row_order: Vec<RowUid>,
     next_row_uid: RowUid,
     columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
-    cell_edit: Cell<Option<(CellCoord, Variant)>>,
+    cell_edit: RwLock<Option<(CellCoord, Variant)>>,
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
 }
@@ -45,7 +45,7 @@ impl VariantBackend {
                     (col_uid, (backend_column, variant_column))
                 })
                 .collect(),
-            cell_edit: Cell::new(None),
+            cell_edit: RwLock::new(None),
             persistent_flags: PersistentFlags {
                 is_read_only: false,
                 column_info_present: true,
@@ -198,7 +198,7 @@ impl TableBackend for VariantBackend {
             .map(|(_, c)| c.ty)
             .unwrap_or(VariantTy::Str);
 
-        let mut value = if let Some((prev_coord, value)) = self.cell_edit.take() {
+        let mut value = if let Some((prev_coord, value)) = self.cell_edit.write().unwrap().take() {
             if prev_coord == coord {
                 value
             } else {
@@ -292,12 +292,12 @@ impl TableBackend for VariantBackend {
                 None
             }
         };
-        self.cell_edit.set(Some((coord, value)));
+        *self.cell_edit.write().unwrap() = Some((coord, value));
         resp
     }
 
     fn commit_cell_edit(&mut self, coord: CellCoord) {
-        if let Some((last_edited_coord, value)) = self.cell_edit.take() {
+        if let Some((last_edited_coord, value)) = self.cell_edit.write().unwrap().take() {
             if last_edited_coord == coord {
                 self.cell_data.insert(coord, value);
             }
