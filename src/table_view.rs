@@ -3,7 +3,7 @@ mod state;
 
 use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
 use crate::table_view::state::SelectedRange;
-use egui::{Key, Label, PointerButton, Response, Rounding, ScrollArea, Sense, Stroke, Ui};
+use egui::{Key, Label, PointerButton, Response, CornerRadius, ScrollArea, Sense, Stroke, Ui};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
@@ -67,7 +67,7 @@ impl TableView {
                     .striped(true)
                     .resizable(true)
                     .max_scroll_height(f32::MAX)
-                    .sense(Sense::click_and_drag().tap_mut(|s| s.focusable = true))
+                    .sense(Sense::click_and_drag())
                     .header(20., |mut h| {
                         for column_uid in columns.iter().copied() {
                             let backend_column = backend.column_info(column_uid).unwrap();
@@ -119,7 +119,7 @@ impl TableView {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
                                         rect_fix,
-                                        Rounding::ZERO,
+                                        CornerRadius::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.2),
                                     );
                                 }
@@ -134,7 +134,7 @@ impl TableView {
                                 if let Some(p) = &painter {
                                     p.rect_filled(
                                         rect_fix,
-                                        Rounding::ZERO,
+                                        CornerRadius::ZERO,
                                         visual.selection.bg_fill.gamma_multiply(0.5),
                                     );
                                 }
@@ -266,7 +266,7 @@ impl TableView {
                         // Light orange background inside selection
                         ui.painter().rect_filled(
                             ui_max_rect.expand(0.),
-                            Rounding::ZERO,
+                            CornerRadius::ZERO,
                             visual.warn_fg_color.gamma_multiply(0.2),
                         );
                     }
