@@ -11,9 +11,9 @@ impl Default for SimpleApp {
             RequiredColumn::new("key", VariantTy::Str).synonyms(["parameter", "parameter_name"]),
             RequiredColumn::new("value", VariantTy::U32),
         ]);
-        Self {
-            importer: TabularImporter::new(required_columns),
-        }
+        let mut importer = TabularImporter::new(required_columns);
+        // importer.set_max_lines(1000);
+        Self { importer }
     }
 }
 

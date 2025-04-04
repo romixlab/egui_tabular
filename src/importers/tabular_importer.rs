@@ -1,8 +1,10 @@
-use super::csv::{CsvImporter, Separator};
+use super::csv::{CsvImporter, CsvReaderSettings, Separator};
 use crate::backends::variant::VariantBackend;
 use crate::{RequiredColumns, TableView};
 use egui::{RichText, Slider, Ui};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::BufReader;
 use std::path::PathBuf;
 use strum::IntoEnumIterator;
 
@@ -12,6 +14,8 @@ pub struct TabularImporter {
     pub table_view: TableView,
     state: PersistentState,
     picked_file: Option<PathBuf>,
+    file: Option<File>,
+    max_lines: Option<usize>,
 }
 
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -56,7 +60,10 @@ impl TabularImporter {
             backend,
             table_view: TableView::new(),
             state: PersistentState::default(),
+            // picked_file: None,
             picked_file: None,
+            file: None,
+            max_lines: None,
         }
     }
 
@@ -67,7 +74,9 @@ impl TabularImporter {
 
             if ui.button("Open file…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.picked_file = Some(path);
+                    self.picked_file = Some(path.clone());
+                    let file = File::open(path).unwrap();
+                    self.file = Some(file);
                     reloaded = true;
                     self.try_load();
                 }
@@ -124,12 +133,13 @@ impl TabularImporter {
     }
 
     fn try_load(&mut self) {
-        let Some(path) = self.picked_file.clone() else {
+        let Some(file) = &self.file else {
             return;
         };
         self.csv.set_separator(self.state.separator);
         self.csv.skip_rows_on_load(self.state.skip_first_rows);
-        self.csv.load(path, &mut self.backend);
+        let mut rdr = BufReader::new(file);
+        self.csv.load(&mut rdr, &mut self.backend, self.max_lines);
     }
 
     pub fn has_warnings(&self) -> bool {
@@ -146,5 +156,24 @@ impl TabularImporter {
 
     pub fn backend_mut(&mut self) -> &mut VariantBackend {
         &mut self.backend
+    }
+
+    pub fn set_max_lines(&mut self, max_lines: usize) {
+        self.max_lines = Some(max_lines);
+    }
+
+    pub fn load(&mut self, path: PathBuf) {
+        self.picked_file = Some(path.clone());
+        let file = File::open(path).unwrap();
+        self.file = Some(file);
+        self.try_load();
+    }
+
+    pub fn take_file(&mut self) -> Option<File> {
+        self.file.take()
+    }
+
+    pub fn settings(&self) -> CsvReaderSettings {
+        self.csv.settings()
     }
 }
