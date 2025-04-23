@@ -7,7 +7,7 @@ use crate::backend::{
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
 use egui::{
-    CornerRadius, CursorIcon, Key, Label, PointerButton, Response, RichText, ScrollArea, Sense,
+    CornerRadius, CursorIcon, Id, Key, Label, PointerButton, Response, RichText, ScrollArea, Sense,
     Stroke, TextWrapMode, Ui,
 };
 use egui_extras::{Column, TableBody};
@@ -29,19 +29,33 @@ impl TableView {
         backend: &mut impl TableBackend,
         config: &mut TableViewConfig,
         ui: &mut Ui,
+        id: Id,
     ) -> Response {
-        if backend.one_shot_flags().column_info_updated {
-            println!("Updating col info");
-            self.state.columns = backend.used_columns().collect();
-            self.state.columns.sort();
+        if backend.one_shot_flags().columns_reset {
+            log::trace!("Updating col info");
+            self.state.columns_ordered = backend.used_columns().collect();
+            self.state.columns_ordered.sort();
+        }
+        if backend.one_shot_flags().columns_reset || backend.one_shot_flags().columns_changed {
+            self.state.columns.clear();
+            for col_uid in self.state.columns_ordered.iter() {
+                if let Some(info) = backend.column_info(*col_uid) {
+                    self.state.columns.insert(*col_uid, info.clone());
+                }
+            }
+        }
+        if backend.one_shot_flags().row_set_updated {
+            self.state
+                .row_heights
+                .resize(backend.row_count(), config.minimum_row_height);
+            self.state.row_heights.fill(config.minimum_row_height);
         }
         *backend.one_shot_flags_mut() = OneShotFlags::default();
-        if self.state.columns.is_empty() {
+        if self.state.columns_ordered.is_empty() {
             return ui.label("No columns");
         }
 
         let ctx = &ui.ctx().clone();
-        let ui_id = ui.id();
         let style = ui.style().clone();
         let painter = ui.painter().clone();
         let visual = &style.visuals;
@@ -49,7 +63,7 @@ impl TableView {
         let mut resp_total = None::<Response>;
         let mut resp_ret = None::<Response>;
         // Temporarily take out columns Vec, to satisfy borrow checker.
-        let columns = core::mem::take(&mut self.state.columns);
+        let columns = core::mem::take(&mut self.state.columns_ordered);
         let mut swap_columns = None;
 
         ScrollArea::horizontal()
@@ -76,10 +90,13 @@ impl TableView {
                     .sense(Sense::click_and_drag())
                     .header(20., |mut h| {
                         for column_uid in columns.iter().copied() {
-                            let backend_column = backend.column_info(column_uid).unwrap();
+                            let Some(backend_column) = self.state.columns.get(&column_uid) else {
+                                continue;
+                            };
                             let mut painter = None;
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
+                                backend.custom_column_ui(column_uid, ui, id);
                                 let col_name = Label::new(
                                     RichText::new(backend_column.name.as_str())
                                         .strong()
@@ -159,14 +176,14 @@ impl TableView {
                             (),
                             ctx,
                             &style,
-                            ui_id,
+                            id,
                             &columns,
                             resp_total,
                         );
                     });
             });
 
-        self.state.columns = columns.tap_mut(|columns| {
+        self.state.columns_ordered = columns.tap_mut(|columns| {
             if let Some((c1, c2)) = swap_columns {
                 Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
             }
@@ -244,20 +261,21 @@ impl TableView {
         backend: &mut impl TableBackend,
         config: &TableViewConfig,
         body: TableBody<'_>,
-        mut _painter: egui::Painter,
+        _painter: egui::Painter,
         _commands: (),
         ctx: &egui::Context,
         style: &egui::Style,
-        _ui_id: egui::Id,
+        id: Id,
         columns: &[ColumnUid],
         mut resp_total: Option<Response>,
     ) -> Option<Response> {
         let visual = &style.visuals;
         let s = &mut self.state;
-        let row_heights = core::mem::take(&mut s.row_heights);
+        let row_heights = &mut s.row_heights;
         let mut row_heights_updates = Vec::new();
         // let pointer_primary_down = ctx.input(|i| i.pointer.button_down(PointerButton::Primary));
         let mut commit_edit = None;
+        let row_count = backend.row_count();
 
         let render_fn = |mut row: egui_extras::TableRow| {
             let row_idx = row.index();
@@ -324,7 +342,7 @@ impl TableView {
 
                     if is_editing_current_cell {
                         let coord = CellCoord { row_uid, col_uid };
-                        let _resp = backend.show_cell_editor(coord, ui);
+                        let _resp = backend.show_cell_editor(coord, ui, id);
                         if ui.input(|i| i.key_pressed(Key::Enter)) {
                             commit_edit = Some(coord)
                         }
@@ -333,7 +351,7 @@ impl TableView {
                         }
                     } else {
                         ui.add_enabled_ui(false, |ui| {
-                            backend.show_cell_view(CellCoord { row_uid, col_uid }, ui);
+                            backend.show_cell_view(CellCoord { row_uid, col_uid }, ui, id);
                         });
                     }
                 });
@@ -358,12 +376,12 @@ impl TableView {
             } // for col_uid in used_columns
 
             if config.use_heterogeneous_row_heights {
-                if let Some(prev_row_height) = row_heights.get(&row_uid) {
+                if let Some(prev_row_height) = row_heights.get(row_idx) {
                     if (next_frame_row_height - *prev_row_height).abs() > 0.1 {
-                        row_heights_updates.push((row_uid, next_frame_row_height));
+                        row_heights_updates.push((row_idx, next_frame_row_height));
                     }
                 } else {
-                    row_heights_updates.push((row_uid, next_frame_row_height));
+                    log::warn!("Row heights wrong len");
                 }
             }
 
@@ -376,24 +394,12 @@ impl TableView {
         };
 
         if config.use_heterogeneous_row_heights {
-            body.heterogeneous_rows(
-                (0..backend.row_count()).map(|idx| {
-                    let row_uid = backend.row_uid(VisualRowIdx(idx)).unwrap();
-                    row_heights
-                        .get(&row_uid)
-                        .copied()
-                        .unwrap_or(config.minimum_row_height)
-                }),
-                render_fn,
-            );
-
-            s.row_heights = row_heights.tap_mut(|row_heights| {
-                for (row_uid, next_frame_row_height) in row_heights_updates {
-                    row_heights.insert(row_uid, next_frame_row_height);
-                }
-            });
+            body.heterogeneous_rows(row_heights.iter().copied(), render_fn);
+            for (row_idx, next_frame_row_height) in row_heights_updates {
+                row_heights[row_idx] = next_frame_row_height;
+            }
         } else {
-            body.rows(config.minimum_row_height, backend.row_count(), render_fn);
+            body.rows(config.minimum_row_height, row_count, render_fn);
         }
 
         if let Some(coord) = commit_edit {

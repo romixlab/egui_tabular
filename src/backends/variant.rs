@@ -2,19 +2,21 @@ use crate::backend::{
     BackendColumn, CellCoord, ColumnUid, OneShotFlags, PersistentFlags, RowUid, TableBackend,
     VisualRowIdx,
 };
-use egui::{ComboBox, DragValue, Response, TextEdit, Ui, Widget};
+use egui::{ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
     row_order: Vec<RowUid>,
     next_row_uid: RowUid,
     columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
-    cell_edit: RwLock<Option<(CellCoord, Variant)>>,
+    cell_edit: Option<(CellCoord, Variant)>,
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
+
+    column_mapping: Vec<String>,
+    column_mapped_to: String,
 }
 
 struct VariantColumn {
@@ -41,11 +43,11 @@ impl VariantBackend {
                         is_required: true,
                         is_used: true,
                     };
-                    let variant_column = VariantColumn { ty: ty, default };
+                    let variant_column = VariantColumn { ty, default };
                     (col_uid, (backend_column, variant_column))
                 })
                 .collect(),
-            cell_edit: RwLock::new(None),
+            cell_edit: None,
             persistent_flags: PersistentFlags {
                 is_read_only: false,
                 column_info_present: true,
@@ -53,9 +55,12 @@ impl VariantBackend {
                 ..Default::default()
             },
             one_shot_flags: OneShotFlags {
-                column_info_updated: true,
+                columns_reset: true,
+                row_set_updated: true,
                 ..Default::default()
             },
+            column_mapping: vec![],
+            column_mapped_to: String::new(),
         }
     }
 
@@ -81,6 +86,7 @@ impl VariantBackend {
             }
         }
         self.row_order.push(self.next_row_uid);
+        self.one_shot_flags.row_set_updated = true;
         self.next_row_uid = RowUid(self.next_row_uid.0 + 1)
     }
 
@@ -88,7 +94,7 @@ impl VariantBackend {
     pub fn remove_all_columns(&mut self) {
         self.columns.clear();
         self.clear();
-        self.one_shot_flags.column_info_updated = true;
+        self.one_shot_flags.columns_reset = true;
     }
 
     pub fn insert_column(
@@ -112,11 +118,18 @@ impl VariantBackend {
         let variant_column = VariantColumn { ty: ty, default };
         self.columns
             .insert(col_uid, (backend_column, variant_column));
-        self.one_shot_flags.column_info_updated = true;
+        self.one_shot_flags.columns_reset = true;
     }
 
     pub fn get(&self, coord: CellCoord) -> Option<&Variant> {
         self.cell_data.get(&coord)
+    }
+
+    pub fn set_mapping_choices<S: AsRef<str>>(&mut self, choices: impl IntoIterator<Item = S>) {
+        self.column_mapping = choices
+            .into_iter()
+            .map(|s| s.as_ref().to_string())
+            .collect();
     }
 }
 
@@ -124,6 +137,7 @@ impl TableBackend for VariantBackend {
     fn clear(&mut self) {
         self.cell_data.clear();
         self.row_order.clear();
+        self.one_shot_flags.row_set_updated = true;
         self.next_row_uid = RowUid(0);
     }
 
@@ -159,7 +173,7 @@ impl TableBackend for VariantBackend {
         self.row_order.get(row_idx.0).copied()
     }
 
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui) {
+    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, _id: Id) {
         let Some(value) = self.cell_data.get(&coord) else {
             return;
         };
@@ -189,7 +203,7 @@ impl TableBackend for VariantBackend {
         }
     }
 
-    fn show_cell_editor(&self, coord: CellCoord, ui: &mut Ui) -> Option<Response> {
+    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui, id: Id) -> Option<Response> {
         const INT_DRAG_SPEED: f32 = 0.1;
 
         let cell_ty = self
@@ -198,7 +212,7 @@ impl TableBackend for VariantBackend {
             .map(|(_, c)| c.ty)
             .unwrap_or(VariantTy::Str);
 
-        let mut value = if let Some((prev_coord, value)) = self.cell_edit.write().unwrap().take() {
+        let mut value = if let Some((prev_coord, value)) = self.cell_edit.take() {
             if prev_coord == coord {
                 value
             } else {
@@ -214,11 +228,12 @@ impl TableBackend for VariantBackend {
                 .unwrap_or(Variant::default_of(cell_ty))
         };
         let resp = match &mut value {
+            Variant::Bool(v) => Some(ui.checkbox(v, "")),
             Variant::Enum {
                 enum_uid,
                 discriminant: discriminant_edit,
             } => {
-                let resp = ComboBox::from_id_salt("_egui_tabular_enum_edit")
+                let resp = ComboBox::from_id_salt(id.with("_egui_tabular_enum_edit"))
                     .selected_text(
                         rvariant::uid_to_variant_name(*enum_uid, *discriminant_edit).expect(""),
                     )
@@ -292,15 +307,28 @@ impl TableBackend for VariantBackend {
                 None
             }
         };
-        *self.cell_edit.write().unwrap() = Some((coord, value));
+        self.cell_edit = Some((coord, value));
         resp
     }
 
     fn commit_cell_edit(&mut self, coord: CellCoord) {
-        if let Some((last_edited_coord, value)) = self.cell_edit.write().unwrap().take() {
+        if let Some((last_edited_coord, value)) = self.cell_edit.take() {
             if last_edited_coord == coord {
                 self.cell_data.insert(coord, value);
             }
         }
+    }
+
+    fn custom_column_ui(&mut self, col_uid: ColumnUid, ui: &mut Ui, id: Id) {
+        if self.column_mapping.is_empty() {
+            return;
+        }
+        ComboBox::from_id_salt(id.with(col_uid.0))
+            .selected_text(self.column_mapped_to.as_str())
+            .show_ui(ui, |ui| {
+                for m in &self.column_mapping {
+                    ui.selectable_value(&mut self.column_mapped_to, m.clone(), m.as_str());
+                }
+            });
     }
 }

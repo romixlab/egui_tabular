@@ -1,4 +1,4 @@
-use egui::Ui;
+use egui::{Id, Ui};
 use egui_extras::Column as TableColumnConfig;
 use serde::{Deserialize, Serialize};
 
@@ -77,8 +77,9 @@ pub trait TableBackend {
     /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
 
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui);
-    fn show_cell_editor(&self, coord: CellCoord, ui: &mut Ui) -> Option<egui::Response>;
+    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, id: Id);
+    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui, id: Id)
+        -> Option<egui::Response>;
     fn commit_cell_edit(&mut self, coord: CellCoord);
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
@@ -111,6 +112,8 @@ pub trait TableBackend {
     // fn remove_row_filter(&mut self, idx: usize);
     // Get currently used row filters
     // fn row_filters(&self) -> &[(RowFilter, String)];
+
+    fn custom_column_ui(&mut self, _col_uid: ColumnUid, _ui: &mut Ui, _id: Id) {}
 }
 
 #[derive(Default)]
@@ -144,7 +147,9 @@ pub struct OneShotFlags {
     /// Set once reload() is called or full load is initiated through other means
     pub reloaded: bool,
     /// Set once column names, types and default values was loaded
-    pub column_info_updated: bool,
+    pub columns_reset: bool,
+    /// Set when one or more columns are changed
+    pub columns_changed: bool,
     /// Set once after row uid set was loaded or changed
     pub row_set_updated: bool,
     /// Set once when visible row set was changed (after filtering or sorting)

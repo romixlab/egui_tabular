@@ -1,17 +1,19 @@
-use crate::backend::{ColumnUid, RowUid};
+use crate::backend::{BackendColumn, ColumnUid};
 use std::collections::HashMap;
 
 pub(super) struct State {
-    pub(super) row_heights: HashMap<RowUid, f32>,
-    pub(super) columns: Vec<ColumnUid>,
+    pub(super) row_heights: Vec<f32>,
+    pub(super) columns_ordered: Vec<ColumnUid>,
+    pub(super) columns: HashMap<ColumnUid, BackendColumn>,
     pub(super) selected_range: Option<SelectedRange>,
 }
 
 impl Default for State {
     fn default() -> Self {
         State {
-            row_heights: HashMap::new(),
-            columns: Vec::new(),
+            row_heights: vec![],
+            columns_ordered: Vec::new(),
+            columns: Default::default(),
             selected_range: None,
         }
     }
