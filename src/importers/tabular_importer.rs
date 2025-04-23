@@ -13,7 +13,7 @@ pub struct TabularImporter {
     csv: CsvImporter,
     pub backend: VariantBackend,
     pub table_view: TableView,
-    file: Option<File>,
+    open_error: Option<String>,
     load_rows_limit: Option<usize>,
 }
 
@@ -53,30 +53,43 @@ impl TabularImporter {
             csv: CsvImporter::new(required_columns),
             backend,
             table_view: TableView::new(),
-            file: None,
+            open_error: None,
             load_rows_limit: None,
         }
     }
 
     pub fn show(&mut self, config: &mut TabularImporterConfig, ui: &mut Ui) -> bool {
         let mut reloaded = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("CSV Options").strong().monospace());
-
-            if ui.button("Open file…").clicked() {
+        ui.horizontal(|ui| {
+            let label = if let Some(limit) = self.load_rows_limit {
+                RichText::new(format!("Preview file ({limit} rows):"))
+            } else {
+                RichText::new("File:")
+            };
+            ui.label(label.strong().monospace());
+            if let Some(path) = &config.picked_file {
+                ui.label(
+                    path.to_str()
+                        .unwrap_or("Path contains invalid Unicode, but load should work anyway"),
+                );
+            } else {
+                ui.label("Picked file:");
+            }
+            if ui.button("Open").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     config.picked_file = Some(path.clone());
-                    let file = File::open(path).unwrap();
-                    self.file = Some(file);
+
                     reloaded = true;
-                    self.try_load(config);
+                    self.reload(config);
                 }
             }
             if ui.button("Reload").clicked() {
                 reloaded = true;
-                self.try_load(config);
+                self.reload(config);
             }
-            ui.separator();
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("CSV Options").strong().monospace());
 
             ui.label("Separator:");
             let delim_changed = egui::ComboBox::from_label("")
@@ -97,14 +110,14 @@ impl TabularImporter {
                 .inner;
             if let Some(true) = delim_changed {
                 reloaded = true;
-                self.try_load(config);
+                self.reload(config);
             }
             if ui
                 .checkbox(&mut config.importer_config.has_headers, "Has header row")
                 .changed()
             {
                 reloaded = true;
-                self.try_load(config);
+                self.reload(config);
             }
 
             ui.separator();
@@ -118,7 +131,7 @@ impl TabularImporter {
                 .changed()
             {
                 reloaded = true;
-                self.try_load(config);
+                self.reload(config);
             }
         });
         if self.csv.status().is_error() {
@@ -130,9 +143,22 @@ impl TabularImporter {
         reloaded
     }
 
-    fn try_load(&mut self, config: &TabularImporterConfig) {
-        let Some(file) = &self.file else {
+    pub fn load(&mut self, path: PathBuf, config: &mut TabularImporterConfig) {
+        config.picked_file = Some(path.clone());
+        self.reload(config);
+    }
+
+    pub fn reload(&mut self, config: &TabularImporterConfig) {
+        let Some(path) = &config.picked_file else {
+            self.open_error = None;
             return;
+        };
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(e) => {
+                self.open_error = Some(format!("{e}"));
+                return;
+            }
         };
         let mut rdr = BufReader::new(file);
         self.csv.load(
@@ -157,25 +183,6 @@ impl TabularImporter {
 
     pub fn set_max_lines(&mut self, max_lines: usize) {
         self.load_rows_limit = Some(max_lines);
-    }
-
-    pub fn load(&mut self, path: PathBuf, config: &mut TabularImporterConfig) {
-        config.picked_file = Some(path.clone());
-        let file = File::open(path).unwrap();
-        self.file = Some(file);
-        self.try_load(config);
-    }
-
-    pub fn reload(&mut self, config: &TabularImporterConfig) {
-        if let Some(path) = &config.picked_file {
-            let file = File::open(path).unwrap();
-            self.file = Some(file);
-            self.try_load(config);
-        }
-    }
-
-    pub fn take_file(&mut self) -> Option<File> {
-        self.file.take()
     }
 }
 
