@@ -1,10 +1,15 @@
 pub mod config;
 mod state;
 
-use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
+use crate::backend::{
+    BackendColumn, CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx,
+};
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
-use egui::{CornerRadius, Key, Label, PointerButton, Response, ScrollArea, Sense, Stroke, Ui};
+use egui::{
+    CornerRadius, CursorIcon, Key, Label, PointerButton, Response, RichText, ScrollArea, Sense,
+    Stroke, TextWrapMode, Ui,
+};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
@@ -46,7 +51,6 @@ impl TableView {
         // Temporarily take out columns Vec, to satisfy borrow checker.
         let columns = core::mem::take(&mut self.state.columns);
         let mut swap_columns = None;
-        // self.frame_n += 1;
 
         ScrollArea::horizontal()
             .drag_to_scroll(false)
@@ -76,27 +80,23 @@ impl TableView {
                             let mut painter = None;
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
-                                let col_name =
-                                    Label::new(backend_column.name.as_str()).selectable(false);
-                                ui.add(col_name).on_hover_ui(|ui| {
-                                    if backend_column.is_required {
-                                        ui.label("Required column, synonyms:");
-                                        for synonym_name in &backend_column.synonyms {
-                                            ui.horizontal(|ui| {
-                                                ui.label(synonym_name);
-                                                ui.label("or");
-                                                ui.label(synonym_name.to_lowercase());
-                                            });
-                                        }
-                                    } else {
-                                        if backend_column.is_used {
-                                            ui.label("Additional column, used");
-                                        } else {
-                                            ui.label("Additional column, not used");
-                                        }
-                                    }
-                                });
+                                let col_name = Label::new(
+                                    RichText::new(backend_column.name.as_str())
+                                        .strong()
+                                        .monospace(),
+                                )
+                                .selectable(false)
+                                .wrap_mode(TextWrapMode::Extend);
+                                ui.add(col_name)
+                                    .on_hover_cursor(CursorIcon::Grab)
+                                    .on_hover_ui(|ui| {
+                                        Self::column_name_hover_ui(&backend_column, ui);
+                                    });
                                 // });
+                                ui.add(
+                                    Label::new(backend_column.ty.as_str())
+                                        .wrap_mode(TextWrapMode::Extend),
+                                );
 
                                 if painter.is_none() {
                                     painter = Some(ui.painter().clone());
@@ -117,20 +117,15 @@ impl TableView {
 
                             let mut rect_fix = resp.rect;
                             rect_fix.set_height(rect_fix.height() * 0.66);
-                            if resp.hovered() && backend_column.is_sortable {
-                                if let Some(p) = &painter {
-                                    p.rect_filled(
-                                        rect_fix,
-                                        CornerRadius::ZERO,
-                                        visual.selection.bg_fill.gamma_multiply(0.2),
-                                    );
-                                }
-                            }
-
-                            if backend_column.is_sortable && resp.clicked_by(PointerButton::Primary)
-                            {
-                                println!("Sort {}", backend_column.name);
-                            }
+                            // if resp.hovered() && backend_column.is_sortable {
+                            //     if let Some(p) = &painter {
+                            //         p.rect_filled(
+                            //             rect_fix,
+                            //             CornerRadius::ZERO,
+                            //             visual.selection.bg_fill.gamma_multiply(0.2),
+                            //         );
+                            //     }
+                            // }
 
                             if resp.dnd_hover_payload::<ColumnUid>().is_some() {
                                 if let Some(p) = &painter {
@@ -146,11 +141,7 @@ impl TableView {
                                 swap_columns = Some((column_uid, *payload));
                             }
 
-                            resp.context_menu(|ui| {
-                                if ui.button("Hide").clicked() {
-                                    ui.close_menu();
-                                }
-                            });
+                            Self::column_context_menu(backend_column, resp);
                         }
 
                         // Account for header response to calculate total response.
@@ -181,6 +172,41 @@ impl TableView {
             }
         });
         resp_ret.unwrap_or_else(|| ui.label("??"))
+    }
+
+    fn column_context_menu(col: &BackendColumn, resp: Response) {
+        resp.context_menu(|ui| {
+            if col.is_sortable {
+                if ui.button("Sort ascending").clicked() {
+                    ui.close_menu();
+                }
+                if ui.button("Sort descending").clicked() {
+                    ui.close_menu();
+                }
+            }
+            if ui.button("Hide").clicked() {
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn column_name_hover_ui(col: &BackendColumn, ui: &mut Ui) {
+        if col.is_required {
+            ui.label("Required column, synonyms:");
+            for synonym_name in &col.synonyms {
+                ui.horizontal(|ui| {
+                    ui.label(synonym_name);
+                    ui.label("or");
+                    ui.label(synonym_name.to_lowercase());
+                });
+            }
+        } else {
+            if col.is_used {
+                ui.label("Additional column, used");
+            } else {
+                ui.label("Additional column, not used");
+            }
+        }
     }
 
     fn swap_columns(
