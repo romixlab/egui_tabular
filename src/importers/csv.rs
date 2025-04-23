@@ -9,9 +9,6 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 
 pub(crate) struct CsvImporter {
     required_columns: RequiredColumns,
-
-    settings: CsvReaderSettings,
-
     state: State,
 }
 
@@ -60,38 +57,34 @@ pub enum Separator {
     Semicolon,
 }
 
-#[derive(Copy, Clone)]
-pub struct CsvReaderSettings {
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub struct CsvImporterConfig {
     pub separator: Separator,
-    pub separator_u8: u8,
     pub skip_first_rows: usize,
     pub has_headers: bool,
+}
+
+impl Default for CsvImporterConfig {
+    fn default() -> Self {
+        CsvImporterConfig {
+            separator: Default::default(),
+            skip_first_rows: 0,
+            has_headers: true,
+        }
+    }
 }
 
 impl CsvImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
         CsvImporter {
             required_columns,
-            settings: CsvReaderSettings {
-                separator: Default::default(),
-                separator_u8: b',',
-                skip_first_rows: 0,
-                has_headers: true,
-            },
             state: State::default(),
         }
     }
 
-    pub fn set_separator(&mut self, separator: Separator) {
-        self.settings.separator = separator;
-    }
-
-    pub fn skip_rows_on_load(&mut self, count: usize) {
-        self.settings.skip_first_rows = count;
-    }
-
     pub fn load<R: Read + Seek>(
         &mut self,
+        config: &CsvImporterConfig,
         rdr: &mut BufReader<R>,
         backend: &mut VariantBackend,
         max_lines: Option<usize>,
@@ -99,14 +92,13 @@ impl CsvImporter {
         trace!("CsvImporter: loading");
 
         backend.remove_all_columns();
-        let separator = match self.determine_separator(rdr) {
+        let separator = match self.determine_separator(config, rdr) {
             Some(value) => value,
             None => {
                 self.state.status = IoStatus::UnknownSeparator;
                 return;
             }
         };
-        self.settings.separator_u8 = separator;
         rdr.seek(SeekFrom::Start(0)).unwrap();
 
         let mut rdr = csv::ReaderBuilder::new()
@@ -116,11 +108,11 @@ impl CsvImporter {
             .from_reader(rdr);
         // .from_path(path.clone())
         let mut records = rdr.records();
-        for _ in 0..self.settings.skip_first_rows {
+        for _ in 0..config.skip_first_rows {
             records.next();
         }
         // TODO: handle no headers case
-        let csv_to_col_uid = if self.settings.has_headers {
+        let csv_to_col_uid = if config.has_headers {
             match records.next() {
                 Some(Ok(headers)) => {
                     let headers: Vec<&str> = headers.iter().collect();
@@ -161,7 +153,7 @@ impl CsvImporter {
                 }
                 Err(e) => {
                     self.state.status =
-                        IoStatus::ReaderErrorAtLine(row_idx + 1 + self.settings.skip_first_rows, e);
+                        IoStatus::ReaderErrorAtLine(row_idx + 1 + config.skip_first_rows, e);
                     break;
                 }
             }
@@ -184,8 +176,12 @@ impl CsvImporter {
         }
     }
 
-    fn determine_separator<R: Read + Seek>(&mut self, rdr: &mut BufReader<R>) -> Option<u8> {
-        Some(match self.settings.separator {
+    fn determine_separator<R: Read + Seek>(
+        &mut self,
+        config: &CsvImporterConfig,
+        rdr: &mut BufReader<R>,
+    ) -> Option<u8> {
+        Some(match config.separator {
             Separator::Auto => {
                 let mut counts: [(usize, u8); 3] = [(0, b','), (1, b'\t'), (2, b';')];
                 for b in rdr.bytes().take(1024 * 1024) {
@@ -260,9 +256,5 @@ impl CsvImporter {
 
     pub fn status(&self) -> &IoStatus {
         &self.state.status
-    }
-
-    pub fn settings(&self) -> CsvReaderSettings {
-        self.settings
     }
 }

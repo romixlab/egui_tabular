@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct TableViewConfig {
     /// Row height will not be lower that this value.
     pub minimum_row_height: f32,
@@ -12,11 +15,5 @@ impl Default for TableViewConfig {
             minimum_row_height: 15.0,
             use_heterogeneous_row_heights: true,
         }
-    }
-}
-
-impl super::TableView {
-    pub fn config_mut(&mut self) -> &mut TableViewConfig {
-        &mut self.config
     }
 }

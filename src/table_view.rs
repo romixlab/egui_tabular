@@ -1,37 +1,39 @@
-mod config;
+pub mod config;
 mod state;
 
 use crate::backend::{CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx};
 use crate::table_view::state::SelectedRange;
-use egui::{Key, Label, PointerButton, Response, CornerRadius, ScrollArea, Sense, Stroke, Ui};
+pub use config::TableViewConfig;
+use egui::{CornerRadius, Key, Label, PointerButton, Response, ScrollArea, Sense, Stroke, Ui};
 use egui_extras::{Column, TableBody};
 use tap::Tap;
 
 pub struct TableView {
     state: state::State,
-    config: config::TableViewConfig,
-    // frame_n: usize,
 }
 
 impl TableView {
     pub fn new() -> Self {
         TableView {
             state: state::State::default(),
-            config: config::TableViewConfig::default(),
-            // frame_n: 0
         }
     }
 
-    pub fn show(&mut self, backend: &mut impl TableBackend, ui: &mut Ui) -> Response {
+    pub fn show(
+        &mut self,
+        backend: &mut impl TableBackend,
+        config: &mut TableViewConfig,
+        ui: &mut Ui,
+    ) -> Response {
         if backend.one_shot_flags().column_info_updated {
             println!("Updating col info");
             self.state.columns = backend.used_columns().collect();
             self.state.columns.sort();
         }
+        *backend.one_shot_flags_mut() = OneShotFlags::default();
         if self.state.columns.is_empty() {
             return ui.label("No columns");
         }
-        *backend.one_shot_flags_mut() = OneShotFlags::default();
 
         let ctx = &ui.ctx().clone();
         let ui_id = ui.id();
@@ -54,8 +56,8 @@ impl TableView {
                     // Note on clip: At least labels won't try to enlarge cell's area,
                     // effectively rendering heterogeneous row heights logic useless.
                     // So disable clipping if heterogeneous row heights are used.
-                    builder = builder
-                        .column(Column::auto().clip(!self.config.use_heterogeneous_row_heights));
+                    builder =
+                        builder.column(Column::auto().clip(!config.use_heterogeneous_row_heights));
                     // builder = builder.column(
                     //     Column::initial(column.name.len() as f32 * 8.0)
                     //         .at_least(36.0)
@@ -160,6 +162,7 @@ impl TableView {
                     .body(|body| {
                         resp_ret = self.show_body(
                             backend,
+                            config,
                             body,
                             painter,
                             (),
@@ -213,6 +216,7 @@ impl TableView {
     fn show_body(
         &mut self,
         backend: &mut impl TableBackend,
+        config: &TableViewConfig,
         body: TableBody<'_>,
         mut _painter: egui::Painter,
         _commands: (),
@@ -240,7 +244,7 @@ impl TableView {
                 row.set_selected(true);
             }
 
-            let mut next_frame_row_height = self.config.minimum_row_height;
+            let mut next_frame_row_height = config.minimum_row_height;
             for (col_idx, col_uid) in columns.iter().copied().enumerate() {
                 let current_cell = SelectedRange::single(row_idx, col_idx);
                 let (
@@ -327,7 +331,7 @@ impl TableView {
                 if resp.double_clicked_by(PointerButton::Primary) {}
             } // for col_uid in used_columns
 
-            if self.config.use_heterogeneous_row_heights {
+            if config.use_heterogeneous_row_heights {
                 if let Some(prev_row_height) = row_heights.get(&row_uid) {
                     if (next_frame_row_height - *prev_row_height).abs() > 0.1 {
                         row_heights_updates.push((row_uid, next_frame_row_height));
@@ -345,14 +349,14 @@ impl TableView {
             }
         };
 
-        if self.config.use_heterogeneous_row_heights {
+        if config.use_heterogeneous_row_heights {
             body.heterogeneous_rows(
                 (0..backend.row_count()).map(|idx| {
                     let row_uid = backend.row_uid(VisualRowIdx(idx)).unwrap();
                     row_heights
                         .get(&row_uid)
                         .copied()
-                        .unwrap_or(self.config.minimum_row_height)
+                        .unwrap_or(config.minimum_row_height)
                 }),
                 render_fn,
             );
@@ -363,11 +367,7 @@ impl TableView {
                 }
             });
         } else {
-            body.rows(
-                self.config.minimum_row_height,
-                backend.row_count(),
-                render_fn,
-            );
+            body.rows(config.minimum_row_height, backend.row_count(), render_fn);
         }
 
         if let Some(coord) = commit_edit {
