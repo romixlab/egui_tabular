@@ -60,15 +60,17 @@ pub enum Separator {
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct CsvImporterConfig {
-    pub separator: Separator,
-    pub skip_first_rows: usize,
-    pub has_headers: bool,
+    pub(crate) separator: Separator,
+    separator_u8: u8,
+    pub(crate) skip_first_rows: usize,
+    pub(crate) has_headers: bool,
 }
 
 impl Default for CsvImporterConfig {
     fn default() -> Self {
         CsvImporterConfig {
             separator: Default::default(),
+            separator_u8: b',',
             skip_first_rows: 0,
             has_headers: true,
         }
@@ -85,7 +87,7 @@ impl CsvImporter {
 
     pub fn load<R: Read + Seek>(
         &mut self,
-        config: &CsvImporterConfig,
+        config: &mut CsvImporterConfig,
         rdr: &mut BufReader<R>,
         backend: &mut VariantBackend,
         max_lines: Option<usize>,
@@ -100,6 +102,7 @@ impl CsvImporter {
                 return;
             }
         };
+        config.separator_u8 = separator;
         rdr.seek(SeekFrom::Start(0)).unwrap();
 
         let mut rdr = csv::ReaderBuilder::new()
@@ -267,5 +270,19 @@ impl CsvImporter {
 
     pub fn status(&self) -> &IoStatus {
         &self.state.status
+    }
+}
+
+impl CsvImporterConfig {
+    pub fn separator(&self) -> u8 {
+        self.separator_u8
+    }
+
+    pub fn skip_first_rows(&self) -> usize {
+        self.skip_first_rows
+    }
+
+    pub fn has_headers(&self) -> bool {
+        self.has_headers
     }
 }
