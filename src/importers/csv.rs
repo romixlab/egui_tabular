@@ -1,6 +1,7 @@
 use super::required_column::RequiredColumns;
 use crate::backend::{ColumnUid, TableBackend};
 use crate::backends::variant::VariantBackend;
+use crate::util::base_26;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
 use serde::{Deserialize, Serialize};
@@ -133,6 +134,7 @@ impl CsvImporter {
             HashMap::new()
         };
         let mut lines_read = 0;
+        let mut max_col_idx = 0;
         for (row_idx, record) in records.enumerate() {
             match record {
                 Ok(record) => {
@@ -142,6 +144,7 @@ impl CsvImporter {
                             .copied()
                             .unwrap_or(ColumnUid(csv_idx as u32));
                         let value = self.convert_cell_value(col_uid, cell_value);
+                        max_col_idx = max_col_idx.max(csv_idx);
                         (col_uid, value)
                     }));
                     if let Some(max_lines) = max_lines {
@@ -158,11 +161,19 @@ impl CsvImporter {
                 }
             }
         }
-        //     }
-        //     Err(e) => {
-        //         self.state.status = IoStatus::ReaderError(e);
-        //     }
-        // }
+        if csv_to_col_uid.is_empty() {
+            for col_idx in 0..max_col_idx {
+                backend.insert_column(
+                    ColumnUid(col_idx as u32),
+                    base_26(col_idx as u32 + 1),
+                    vec![],
+                    VariantTy::Str,
+                    None,
+                    false,
+                    true,
+                );
+            }
+        }
         self.state.status = IoStatus::Loaded;
         backend.one_shot_flags_mut().column_info_updated = true;
         backend.one_shot_flags_mut().reloaded = true;
