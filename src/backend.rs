@@ -8,7 +8,7 @@ pub struct RowUid(pub u32);
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct ColumnUid(pub u32);
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -45,7 +45,12 @@ pub trait TableBackend {
     }
 
     fn persistent_flags(&self) -> &PersistentFlags;
+    /// Returns one shot flags with 1 frame delay, so that user code gets a change to react to flag changes.
     fn one_shot_flags(&self) -> &OneShotFlags;
+    /// Returns one shot flags without delay, only to be used in TableView, cleared when show is called.
+    fn one_shot_flags_internal(&self) -> &OneShotFlags;
+    /// Called in TableView::show() to copy current flags to the ones that will be returned via one_shot_flags()
+    fn one_shot_flags_archive(&mut self);
     fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags;
 
     /// Process requests, talk to backend, watch for file changes, etc.
@@ -140,7 +145,7 @@ pub struct PersistentFlags {
 }
 
 /// One shot flags: all flags are reset to false after poll() call
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct OneShotFlags {
     /// Set once data backend is created
     pub first_pass: bool,

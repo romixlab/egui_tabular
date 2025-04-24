@@ -2,7 +2,7 @@ use super::csv::{CsvImporter, CsvImporterConfig, Separator};
 use crate::backends::variant::VariantBackend;
 use crate::table_view::TableViewConfig;
 use crate::{RequiredColumns, TableView};
-use egui::{RichText, Slider, Ui};
+use egui::{Id, RichText, Slider, Ui};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
@@ -40,7 +40,7 @@ impl TabularImporter {
         let mut backend = VariantBackend::new([]);
         for (uid, r) in required_columns.required_columns.iter() {
             backend.insert_column(
-                *uid,
+                Some(*uid),
                 r.name.clone(),
                 r.synonyms.clone(),
                 r.ty,
@@ -58,8 +58,7 @@ impl TabularImporter {
         }
     }
 
-    pub fn show(&mut self, config: &mut TabularImporterConfig, ui: &mut Ui) -> bool {
-        let mut reloaded = false;
+    pub fn show(&mut self, config: &mut TabularImporterConfig, ui: &mut Ui, id: Id) {
         ui.horizontal(|ui| {
             let label = if let Some(limit) = self.load_rows_limit {
                 RichText::new(format!("Preview file ({limit} rows):"))
@@ -79,12 +78,10 @@ impl TabularImporter {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     config.picked_file = Some(path.clone());
 
-                    reloaded = true;
                     self.reload(config);
                 }
             }
             if ui.button("Reload").clicked() {
-                reloaded = true;
                 self.reload(config);
             }
         });
@@ -109,14 +106,12 @@ impl TabularImporter {
                 })
                 .inner;
             if let Some(true) = delim_changed {
-                reloaded = true;
                 self.reload(config);
             }
             if ui
                 .checkbox(&mut config.importer_config.has_headers, "Has header row")
                 .changed()
             {
-                reloaded = true;
                 self.reload(config);
             }
 
@@ -130,7 +125,6 @@ impl TabularImporter {
                 .on_hover_text("If file contains additional rows before header row, skip them")
                 .changed()
             {
-                reloaded = true;
                 self.reload(config);
             }
         });
@@ -138,9 +132,9 @@ impl TabularImporter {
             // error_label(csv_table.status(), ui);
             ui.label(format!("{:?}", self.csv.status()));
         }
+        ui.separator();
         self.table_view
-            .show(&mut self.backend, &mut config.view_config, ui);
-        reloaded
+            .show(&mut self.backend, &mut config.view_config, ui, id);
     }
 
     pub fn load(&mut self, path: PathBuf, config: &mut TabularImporterConfig) {
@@ -148,7 +142,7 @@ impl TabularImporter {
         self.reload(config);
     }
 
-    pub fn reload(&mut self, config: &TabularImporterConfig) {
+    pub fn reload(&mut self, config: &mut TabularImporterConfig) {
         let Some(path) = &config.picked_file else {
             self.open_error = None;
             return;
@@ -162,7 +156,7 @@ impl TabularImporter {
         };
         let mut rdr = BufReader::new(file);
         self.csv.load(
-            &config.importer_config,
+            &mut config.importer_config,
             &mut rdr,
             &mut self.backend,
             self.load_rows_limit,

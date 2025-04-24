@@ -31,12 +31,14 @@ impl TableView {
         ui: &mut Ui,
         id: Id,
     ) -> Response {
-        if backend.one_shot_flags().columns_reset {
+        if backend.one_shot_flags_internal().columns_reset {
             log::trace!("Updating col info");
             self.state.columns_ordered = backend.used_columns().collect();
             self.state.columns_ordered.sort();
         }
-        if backend.one_shot_flags().columns_reset || backend.one_shot_flags().columns_changed {
+        if backend.one_shot_flags_internal().columns_reset
+            || backend.one_shot_flags_internal().columns_changed
+        {
             self.state.columns.clear();
             for col_uid in self.state.columns_ordered.iter() {
                 if let Some(info) = backend.column_info(*col_uid) {
@@ -44,12 +46,13 @@ impl TableView {
                 }
             }
         }
-        if backend.one_shot_flags().row_set_updated {
+        if backend.one_shot_flags_internal().row_set_updated {
             self.state
                 .row_heights
                 .resize(backend.row_count(), config.minimum_row_height);
             self.state.row_heights.fill(config.minimum_row_height);
         }
+        backend.one_shot_flags_archive();
         *backend.one_shot_flags_mut() = OneShotFlags::default();
         if self.state.columns_ordered.is_empty() {
             return ui.label("No columns");

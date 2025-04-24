@@ -14,6 +14,7 @@ pub struct VariantBackend {
     cell_edit: Option<(CellCoord, Variant)>,
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
+    one_shot_flags_delay: OneShotFlags,
 
     column_mapping_choices: Vec<String>,
     column_mapped_to: HashMap<ColumnUid, String>,
@@ -59,6 +60,7 @@ impl VariantBackend {
                 row_set_updated: true,
                 ..Default::default()
             },
+            one_shot_flags_delay: Default::default(),
             column_mapping_choices: vec![],
             column_mapped_to: HashMap::new(),
         }
@@ -99,14 +101,26 @@ impl VariantBackend {
 
     pub fn insert_column(
         &mut self,
-        col_uid: ColumnUid,
+        col_uid: Option<ColumnUid>,
         name: String,
         synonyms: Vec<String>,
         ty: VariantTy,
         default: Option<Variant>,
         is_required: bool,
         is_used: bool,
-    ) {
+    ) -> ColumnUid {
+        let col_uid = if let Some(col_uid) = col_uid {
+            col_uid
+        } else {
+            let next = self
+                .columns
+                .keys()
+                .map(|col_uid| col_uid.0)
+                .max()
+                .map(|max| max + 1)
+                .unwrap_or(0);
+            ColumnUid(next)
+        };
         let backend_column = BackendColumn {
             name,
             synonyms,
@@ -115,10 +129,11 @@ impl VariantBackend {
             is_required,
             is_used,
         };
-        let variant_column = VariantColumn { ty: ty, default };
+        let variant_column = VariantColumn { ty, default };
         self.columns
             .insert(col_uid, (backend_column, variant_column));
         self.one_shot_flags.columns_reset = true;
+        col_uid
     }
 
     pub fn get(&self, coord: CellCoord) -> Option<&Variant> {
@@ -150,7 +165,15 @@ impl TableBackend for VariantBackend {
     }
 
     fn one_shot_flags(&self) -> &OneShotFlags {
+        &self.one_shot_flags_delay
+    }
+
+    fn one_shot_flags_internal(&self) -> &OneShotFlags {
         &self.one_shot_flags
+    }
+
+    fn one_shot_flags_archive(&mut self) {
+        self.one_shot_flags_delay = self.one_shot_flags;
     }
 
     fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags {
@@ -216,16 +239,19 @@ impl TableBackend for VariantBackend {
             .map(|(_, c)| c.ty)
             .unwrap_or(VariantTy::Str);
 
+        let mut is_first_pass = false;
         let mut value = if let Some((prev_coord, value)) = self.cell_edit.take() {
             if prev_coord == coord {
                 value
             } else {
+                is_first_pass = true;
                 self.cell_data
                     .get(&coord)
                     .cloned()
                     .unwrap_or(Variant::default_of(cell_ty))
             }
         } else {
+            is_first_pass = true;
             self.cell_data
                 .get(&coord)
                 .cloned()
@@ -253,14 +279,6 @@ impl TableBackend for VariantBackend {
                 Some(resp)
             }
             Variant::Str(edit_text) => {
-                // let edit = if first_pass {
-                //     let edit = TextEdit::singleline(edit_text)
-                //         .cursor_at_end(false)
-                //         .desired_width(f32::INFINITY)
-                //         .ui(ui);
-                //     edit.request_focus();
-                //     edit
-                // } else {
                 let resp = TextEdit::singleline(edit_text)
                     .desired_width(f32::INFINITY)
                     .ui(ui);
@@ -311,6 +329,11 @@ impl TableBackend for VariantBackend {
                 None
             }
         };
+        if is_first_pass {
+            if let Some(resp) = &resp {
+                resp.request_focus();
+            }
+        }
         self.cell_edit = Some((coord, value));
         resp
     }

@@ -167,7 +167,7 @@ impl CsvImporter {
         if csv_to_col_uid.is_empty() {
             for col_idx in 0..max_col_idx {
                 backend.insert_column(
-                    ColumnUid(col_idx as u32),
+                    Some(ColumnUid(col_idx as u32)),
                     base_26(col_idx as u32 + 1),
                     vec![],
                     VariantTy::Str,
@@ -178,7 +178,7 @@ impl CsvImporter {
             }
         }
         self.state.status = IoStatus::Loaded;
-        backend.one_shot_flags_mut().column_info_updated = true;
+        backend.one_shot_flags_mut().columns_reset = true;
         backend.one_shot_flags_mut().reloaded = true;
     }
 
@@ -238,7 +238,7 @@ impl CsvImporter {
                 csv_to_col_uid.insert(csv_col_idx, col_uid);
             }
             backend.insert_column(
-                col_uid,
+                Some(col_uid),
                 col.name.clone(),
                 col.synonyms.clone(),
                 col.ty,
@@ -253,7 +253,7 @@ impl CsvImporter {
             if !csv_to_col_uid.contains_key(&csv_idx) {
                 csv_to_col_uid.insert(csv_idx, next_absent_col_uid);
                 backend.insert_column(
-                    next_absent_col_uid,
+                    Some(next_absent_col_uid),
                     column.to_string(),
                     vec![],
                     VariantTy::Str,
