@@ -17,6 +17,7 @@ TODO: Add web demo.
 * [x] Data import with automatic column mapping based on names.
     * [x] CSV support.
     * [ ] XLS support.
+* [x] Manual column mapping to one of the choices provided by the backend (combo box above columns).
 * [ ] Undo / Redo support.
 * [x] No need to keep all data in memory (if backend supports it).
 * [ ] Support for sorting.
@@ -28,7 +29,7 @@ TODO: Add web demo.
 * [x] Drag&drop column reordering.
 * [ ] Export to CSV and XLS.
 * [ ] Stick to bottom mode for viewing real time data.
-* [ ] Visual state can be persisted on disk.
+* [x] Visual state can be persisted on disk.
 * [ ] Disable/enable rows and columns (show hatch pattern when disabled).
 
 ## Non-goals
