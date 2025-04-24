@@ -135,10 +135,6 @@ impl VariantBackend {
         col_uid
     }
 
-    pub fn get(&self, coord: CellCoord) -> Option<&Variant> {
-        self.cell_data.get(&coord)
-    }
-
     pub fn clear_mapping_choices(&mut self) {
         self.column_mapping_choices.clear();
     }
@@ -199,6 +195,14 @@ impl TableBackend for VariantBackend {
 
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid> {
         self.row_order.get(row_idx.0).copied()
+    }
+
+    fn get(&self, coord: CellCoord) -> Option<&Variant> {
+        self.cell_data.get(&coord)
+    }
+
+    fn set(&mut self, coord: CellCoord, variant: Variant) {
+        self.cell_data.insert(coord, variant);
     }
 
     fn commit_cell_edit(&mut self, coord: CellCoord) {

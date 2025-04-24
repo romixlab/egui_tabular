@@ -15,4 +15,5 @@ mod util;
 pub use rvariant;
 pub use table_view::TableView;
 
+pub use tabular_core::backend::TableBackend;
 pub use tabular_core::{CellCoord, ColumnUid, RowUid};

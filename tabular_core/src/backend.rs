@@ -1,4 +1,5 @@
 use crate::{CellCoord, ColumnUid, RowUid};
+use rvariant::Variant;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -62,6 +63,14 @@ pub trait TableBackend {
     fn row_count(&self) -> usize;
     /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
+
+    /// Get value as Variant, not necessary to implement, but useful if using TableBackend without UI.
+    fn get(&self, _coord: CellCoord) -> Option<&Variant> {
+        None
+    }
+
+    /// Set value as Variant, not necessary to implement, but useful if using TableBackend without UI.
+    fn set(&mut self, _coord: CellCoord, _variant: Variant) {}
 
     fn commit_cell_edit(&mut self, coord: CellCoord);
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
