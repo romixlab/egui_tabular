@@ -1,5 +1,6 @@
-use crate::backend::{BackendColumn, ColumnUid};
+use crate::backend::BackendColumn;
 use std::collections::HashMap;
+use tabular_core::ColumnUid;
 
 pub(super) struct State {
     pub(super) row_heights: Vec<f32>,

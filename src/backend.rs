@@ -1,21 +1,10 @@
 use egui::{Id, Ui};
 use egui_extras::Column as TableColumnConfig;
 use serde::{Deserialize, Serialize};
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct RowUid(pub u32);
+use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub struct ColumnUid(pub u32);
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct CellCoord {
-    pub row_uid: RowUid,
-    pub col_uid: ColumnUid,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 // #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
@@ -119,6 +108,10 @@ pub trait TableBackend {
     // fn row_filters(&self) -> &[(RowFilter, String)];
 
     fn custom_column_ui(&mut self, _col_uid: ColumnUid, _ui: &mut Ui, _id: Id) {}
+
+    fn column_mapping_choices(&self) -> &[String] {
+        &[]
+    }
 }
 
 #[derive(Default)]

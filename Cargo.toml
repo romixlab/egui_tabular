@@ -5,6 +5,7 @@ edition = "2021"
 
 [workspace]
 members = [
+    "tabular_core",
     "demos/simple",
     "demos/csv_xls_import",
 ]
@@ -22,3 +23,4 @@ csv = "1.3"
 strum = { version = "0.26", features = ["derive"] }
 rvariant = { path = "../rvariant" }
 tap = "1.0"
+tabular_core = { path = "./tabular_core" }

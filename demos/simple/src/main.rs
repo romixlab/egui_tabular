@@ -1,8 +1,8 @@
-use egui_tabular::backend::ColumnUid;
 use egui_tabular::backends::variant::VariantBackend;
 use egui_tabular::rvariant::{Variant, VariantTy};
 use egui_tabular::table_view::TableViewConfig;
 use egui_tabular::TableView;
+use tabular_core::ColumnUid;
 
 struct SimpleApp {
     backend: VariantBackend,

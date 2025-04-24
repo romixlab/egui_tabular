@@ -20,8 +20,8 @@ pub struct TabularImporter {
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Serialize, Deserialize)]
 pub struct TabularImporterConfig {
-    view_config: TableViewConfig,
-    importer_config: CsvImporterConfig,
+    pub view_config: TableViewConfig,
+    pub importer_config: CsvImporterConfig,
     picked_file: Option<PathBuf>,
 }
 

@@ -1,5 +1,5 @@
-use crate::backend::ColumnUid;
 use rvariant::{Variant, VariantTy};
+use tabular_core::ColumnUid;
 
 #[derive(Debug)]
 pub struct RequiredColumn {

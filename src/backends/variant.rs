@@ -1,10 +1,8 @@
-use crate::backend::{
-    BackendColumn, CellCoord, ColumnUid, OneShotFlags, PersistentFlags, RowUid, TableBackend,
-    VisualRowIdx,
-};
-use egui::{ComboBox, DragValue, Id, Response, RichText, TextEdit, Ui, Widget};
+use crate::backend::{BackendColumn, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx};
+use egui::{ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
+use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
@@ -17,7 +15,6 @@ pub struct VariantBackend {
     one_shot_flags_delay: OneShotFlags,
 
     column_mapping_choices: Vec<String>,
-    column_mapped_to: HashMap<ColumnUid, String>,
 }
 
 struct VariantColumn {
@@ -62,7 +59,6 @@ impl VariantBackend {
             },
             one_shot_flags_delay: Default::default(),
             column_mapping_choices: vec![],
-            column_mapped_to: HashMap::new(),
         }
     }
 
@@ -140,15 +136,17 @@ impl VariantBackend {
         self.cell_data.get(&coord)
     }
 
-    pub fn set_mapping_choices<S: AsRef<str>>(&mut self, choices: impl IntoIterator<Item = S>) {
-        self.column_mapping_choices = choices
-            .into_iter()
-            .map(|s| s.as_ref().to_string())
-            .collect();
+    pub fn clear_mapping_choices(&mut self) {
+        self.column_mapping_choices.clear();
     }
 
-    pub fn get_col_mapping(&self, col_uid: ColumnUid) -> Option<&str> {
-        self.column_mapped_to.get(&col_uid).map(|s| s.as_ref())
+    pub fn set_mapping_choices<S: AsRef<str>>(&mut self, choices: impl Iterator<Item = S>) {
+        self.column_mapping_choices = choices.map(|s| s.as_ref().to_string()).collect();
+    }
+
+    pub fn push_mapping_choices<S: AsRef<str>>(&mut self, choices: impl Iterator<Item = S>) {
+        self.column_mapping_choices
+            .extend(choices.map(|s| s.as_ref().to_string()));
     }
 }
 
@@ -346,42 +344,7 @@ impl TableBackend for VariantBackend {
         }
     }
 
-    fn custom_column_ui(&mut self, col_uid: ColumnUid, ui: &mut Ui, id: Id) {
-        if self.column_mapping_choices.is_empty() {
-            return;
-        }
-        let is_used_elsewhere = if let Some(selected) = self.column_mapped_to.get(&col_uid) {
-            if selected.is_empty() {
-                false
-            } else {
-                self.column_mapped_to
-                    .iter()
-                    .any(|(col, value)| *col != col_uid && value == selected)
-            }
-        } else {
-            false
-        };
-        let selected = self.column_mapped_to.entry(col_uid).or_default();
-        let selected_text = if selected.is_empty() {
-            RichText::new("Skip")
-        } else {
-            if is_used_elsewhere {
-                RichText::new(selected.as_str()).color(ui.visuals().warn_fg_color)
-            } else {
-                RichText::new(selected.as_str())
-            }
-        };
-        let resp = ComboBox::from_id_salt(id.with(col_uid.0))
-            .selected_text(selected_text)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(selected, String::new(), "Skip");
-                for m in &self.column_mapping_choices {
-                    ui.selectable_value(selected, m.clone(), m.as_str());
-                }
-            })
-            .response;
-        if is_used_elsewhere {
-            resp.on_hover_text("Cannot map more than one column to the same entity");
-        }
+    fn column_mapping_choices(&self) -> &[String] {
+        &self.column_mapping_choices
     }
 }
