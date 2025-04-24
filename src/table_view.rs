@@ -1,9 +1,7 @@
 pub mod config;
 mod state;
 
-use crate::backend::{
-    BackendColumn, CellCoord, ColumnUid, OneShotFlags, TableBackend, VisualRowIdx,
-};
+use crate::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
 use egui::{
@@ -11,6 +9,8 @@ use egui::{
     Stroke, TextWrapMode, Ui,
 };
 use egui_extras::{Column, TableBody};
+use std::collections::HashMap;
+use tabular_core::{CellCoord, ColumnUid};
 use tap::Tap;
 
 pub struct TableView {
@@ -52,8 +52,6 @@ impl TableView {
                 .resize(backend.row_count(), config.minimum_row_height);
             self.state.row_heights.fill(config.minimum_row_height);
         }
-        backend.one_shot_flags_archive();
-        *backend.one_shot_flags_mut() = OneShotFlags::default();
         if self.state.columns_ordered.is_empty() {
             return ui.label("No columns");
         }
@@ -65,7 +63,7 @@ impl TableView {
         let ui_layer_id = ui.layer_id();
         let mut resp_total = None::<Response>;
         let mut resp_ret = None::<Response>;
-        // Temporarily take out columns Vec, to satisfy borrow checker.
+        // Temporarily take out columns Vec, to satisfy the borrow checker.
         let columns = core::mem::take(&mut self.state.columns_ordered);
         let mut swap_columns = None;
 
@@ -100,6 +98,13 @@ impl TableView {
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
                                 backend.custom_column_ui(column_uid, ui, id);
+                                Self::column_mapping_ui(
+                                    backend.column_mapping_choices(),
+                                    column_uid,
+                                    &mut config.column_mapped_to,
+                                    ui,
+                                    id,
+                                );
                                 let col_name = Label::new(
                                     RichText::new(backend_column.name.as_str())
                                         .strong()
@@ -191,6 +196,9 @@ impl TableView {
                 Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
             }
         });
+
+        backend.one_shot_flags_archive();
+        *backend.one_shot_flags_mut() = OneShotFlags::default();
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
@@ -322,7 +330,7 @@ impl TableView {
                         );
                     }
 
-                    // Lines on first and last row of selection
+                    // Lines on the first and last row of selection
                     let st = Stroke {
                         width: 1.,
                         color: visual.warn_fg_color.gamma_multiply(0.5),
@@ -411,5 +419,50 @@ impl TableView {
         }
 
         resp_total
+    }
+
+    fn column_mapping_ui(
+        choices: &[String],
+        col_uid: ColumnUid,
+        column_mapped_to: &mut HashMap<ColumnUid, String>,
+        ui: &mut Ui,
+        id: Id,
+    ) {
+        if choices.is_empty() {
+            return;
+        }
+        let is_used_elsewhere = if let Some(selected) = column_mapped_to.get(&col_uid) {
+            if selected.is_empty() {
+                false
+            } else {
+                column_mapped_to
+                    .iter()
+                    .any(|(col, value)| *col != col_uid && value == selected)
+            }
+        } else {
+            false
+        };
+        let selected = column_mapped_to.entry(col_uid).or_default();
+        let selected_text = if selected.is_empty() {
+            RichText::new("Skip")
+        } else {
+            if is_used_elsewhere {
+                RichText::new(selected.as_str()).color(ui.visuals().warn_fg_color)
+            } else {
+                RichText::new(selected.as_str())
+            }
+        };
+        let resp = egui::ComboBox::from_id_salt(id.with(col_uid.0))
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(selected, String::new(), "Skip");
+                for m in choices {
+                    ui.selectable_value(selected, m.clone(), m.as_str());
+                }
+            })
+            .response;
+        if is_used_elsewhere {
+            resp.on_hover_text("Cannot map more than one column to the same entity");
+        }
     }
 }
