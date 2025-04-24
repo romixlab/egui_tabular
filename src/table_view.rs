@@ -1,7 +1,7 @@
 pub mod config;
 mod state;
 
-use crate::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
+use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
 use egui::{
@@ -10,6 +10,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBody};
 use std::collections::HashMap;
+use tabular_core::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
 use tabular_core::{CellCoord, ColumnUid};
 use tap::Tap;
 
@@ -24,32 +25,32 @@ impl TableView {
         }
     }
 
-    pub fn show(
+    pub fn show<T: TableFrontend + TableBackend>(
         &mut self,
-        backend: &mut impl TableBackend,
+        table: &mut T,
         config: &mut TableViewConfig,
         ui: &mut Ui,
         id: Id,
     ) -> Response {
-        if backend.one_shot_flags_internal().columns_reset {
+        if table.one_shot_flags_internal().columns_reset {
             log::trace!("Updating col info");
-            self.state.columns_ordered = backend.used_columns().collect();
+            self.state.columns_ordered = table.used_columns().collect();
             self.state.columns_ordered.sort();
         }
-        if backend.one_shot_flags_internal().columns_reset
-            || backend.one_shot_flags_internal().columns_changed
+        if table.one_shot_flags_internal().columns_reset
+            || table.one_shot_flags_internal().columns_changed
         {
             self.state.columns.clear();
             for col_uid in self.state.columns_ordered.iter() {
-                if let Some(info) = backend.column_info(*col_uid) {
+                if let Some(info) = table.column_info(*col_uid) {
                     self.state.columns.insert(*col_uid, info.clone());
                 }
             }
         }
-        if backend.one_shot_flags_internal().row_set_updated {
+        if table.one_shot_flags_internal().row_set_updated {
             self.state
                 .row_heights
-                .resize(backend.row_count(), config.minimum_row_height);
+                .resize(table.row_count(), config.minimum_row_height);
             self.state.row_heights.fill(config.minimum_row_height);
         }
         if self.state.columns_ordered.is_empty() {
@@ -97,9 +98,9 @@ impl TableView {
                             let mut painter = None;
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
-                                backend.custom_column_ui(column_uid, ui, id);
+                                table.custom_column_ui(column_uid, ui, id);
                                 Self::column_mapping_ui(
-                                    backend.column_mapping_choices(),
+                                    table.column_mapping_choices(),
                                     column_uid,
                                     &mut config.column_mapped_to,
                                     ui,
@@ -177,7 +178,7 @@ impl TableView {
                     })
                     .body(|body| {
                         resp_ret = self.show_body(
-                            backend,
+                            table,
                             config,
                             body,
                             painter,
@@ -197,8 +198,8 @@ impl TableView {
             }
         });
 
-        backend.one_shot_flags_archive();
-        *backend.one_shot_flags_mut() = OneShotFlags::default();
+        table.one_shot_flags_archive();
+        *table.one_shot_flags_mut() = OneShotFlags::default();
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
@@ -267,9 +268,9 @@ impl TableView {
         }
     }
 
-    fn show_body(
+    fn show_body<T: TableFrontend + TableBackend>(
         &mut self,
-        backend: &mut impl TableBackend,
+        table: &mut T,
         config: &TableViewConfig,
         body: TableBody<'_>,
         _painter: egui::Painter,
@@ -286,11 +287,11 @@ impl TableView {
         let mut row_heights_updates = Vec::new();
         // let pointer_primary_down = ctx.input(|i| i.pointer.button_down(PointerButton::Primary));
         let mut commit_edit = None;
-        let row_count = backend.row_count();
+        let row_count = table.row_count();
 
         let render_fn = |mut row: egui_extras::TableRow| {
             let row_idx = row.index();
-            let row_uid = backend.row_uid(VisualRowIdx(row_idx)).unwrap();
+            let row_uid = table.row_uid(VisualRowIdx(row_idx)).unwrap();
             let is_editing_cell_on_this_row = s
                 .selected_range
                 .map(|r| r.is_editing() && r.contains_row(row_idx))
@@ -353,7 +354,7 @@ impl TableView {
 
                     if is_editing_current_cell {
                         let coord = CellCoord { row_uid, col_uid };
-                        let _resp = backend.show_cell_editor(coord, ui, id);
+                        let _resp = table.show_cell_editor(coord, ui, id);
                         if ui.input(|i| i.key_pressed(Key::Enter)) {
                             commit_edit = Some(coord)
                         }
@@ -362,7 +363,7 @@ impl TableView {
                         }
                     } else {
                         ui.add_enabled_ui(false, |ui| {
-                            backend.show_cell_view(CellCoord { row_uid, col_uid }, ui, id);
+                            table.show_cell_view(CellCoord { row_uid, col_uid }, ui, id);
                         });
                     }
                 });
@@ -414,7 +415,7 @@ impl TableView {
         }
 
         if let Some(coord) = commit_edit {
-            backend.commit_cell_edit(coord);
+            table.commit_cell_edit(coord);
             s.selected_range = None;
         }
 

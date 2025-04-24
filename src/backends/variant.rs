@@ -1,7 +1,10 @@
-use crate::backend::{BackendColumn, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx};
+use crate::frontend::TableFrontend;
 use egui::{ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
+use tabular_core::backend::{
+    BackendColumn, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
+};
 use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 pub struct VariantBackend {
@@ -198,6 +201,20 @@ impl TableBackend for VariantBackend {
         self.row_order.get(row_idx.0).copied()
     }
 
+    fn commit_cell_edit(&mut self, coord: CellCoord) {
+        if let Some((last_edited_coord, value)) = self.cell_edit.take() {
+            if last_edited_coord == coord {
+                self.cell_data.insert(coord, value);
+            }
+        }
+    }
+
+    fn column_mapping_choices(&self) -> &[String] {
+        &self.column_mapping_choices
+    }
+}
+
+impl TableFrontend for VariantBackend {
     fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, _id: Id) {
         let Some(value) = self.cell_data.get(&coord) else {
             return;
@@ -334,17 +351,5 @@ impl TableBackend for VariantBackend {
         }
         self.cell_edit = Some((coord, value));
         resp
-    }
-
-    fn commit_cell_edit(&mut self, coord: CellCoord) {
-        if let Some((last_edited_coord, value)) = self.cell_edit.take() {
-            if last_edited_coord == coord {
-                self.cell_data.insert(coord, value);
-            }
-        }
-    }
-
-    fn column_mapping_choices(&self) -> &[String] {
-        &self.column_mapping_choices
     }
 }

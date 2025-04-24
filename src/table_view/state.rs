@@ -1,5 +1,5 @@
-use crate::backend::BackendColumn;
 use std::collections::HashMap;
+use tabular_core::backend::BackendColumn;
 use tabular_core::ColumnUid;
 
 pub(super) struct State {

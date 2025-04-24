@@ -1,7 +1,5 @@
-use egui::{Id, Ui};
-use egui_extras::Column as TableColumnConfig;
+use crate::{CellCoord, ColumnUid, RowUid};
 use serde::{Deserialize, Serialize};
-use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
@@ -60,20 +58,11 @@ pub trait TableBackend {
     // Choose whether to use certain columns or not.
     // fn use_columns(&mut self, cols: impl Iterator<Item = (usize, bool)>);
 
-    /// Returns the rendering configuration for the column.
-    fn column_render_config(&mut self, col_uid: ColumnUid) -> TableColumnConfig {
-        let _ = col_uid;
-        TableColumnConfig::auto().resizable(true)
-    }
-
     /// Returns row count, with filters applied.
     fn row_count(&self) -> usize;
     /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
 
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, id: Id);
-    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui, id: Id)
-        -> Option<egui::Response>;
     fn commit_cell_edit(&mut self, coord: CellCoord);
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
@@ -85,13 +74,6 @@ pub trait TableBackend {
     // If commit is tried anyway, it will be rejected.
     // fn create_row(&mut self, values: HashMap<u32, Variant>) -> Option<u32>;
     // fn remove_rows(&mut self, row_ids: Vec<u32>);
-
-    /// Use this to check if given cell is going to take any dropped payload / use as drag
-    /// source.
-    fn on_cell_view_response(&mut self, coord: CellCoord, resp: &egui::Response) -> Option<()> {
-        let _ = (coord, resp);
-        None
-    }
 
     /// Called when a cell is selected/highlighted.
     fn on_highlight_cell(&mut self, coord: CellCoord) {
@@ -106,8 +88,6 @@ pub trait TableBackend {
     // fn remove_row_filter(&mut self, idx: usize);
     // Get currently used row filters
     // fn row_filters(&self) -> &[(RowFilter, String)];
-
-    fn custom_column_ui(&mut self, _col_uid: ColumnUid, _ui: &mut Ui, _id: Id) {}
 
     fn column_mapping_choices(&self) -> &[String] {
         &[]

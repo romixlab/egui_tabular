@@ -1,5 +1,4 @@
 use super::required_column::RequiredColumns;
-use crate::backend::TableBackend;
 use crate::backends::variant::VariantBackend;
 use crate::util::base_26;
 use log::{trace, warn};
@@ -7,6 +6,7 @@ use rvariant::{Variant, VariantTy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use tabular_core::backend::TableBackend;
 use tabular_core::ColumnUid;
 
 pub(crate) struct CsvImporter {

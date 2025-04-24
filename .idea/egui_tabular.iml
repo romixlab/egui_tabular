@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/demos/csv_xls_import/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/demos/simple/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tabular_core/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
