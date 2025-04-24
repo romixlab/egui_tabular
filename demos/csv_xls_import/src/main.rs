@@ -1,8 +1,10 @@
+use egui_tabular::importers::tabular_importer::TabularImporterConfig;
 use egui_tabular::rvariant::VariantTy;
 use egui_tabular::{RequiredColumn, RequiredColumns, TabularImporter};
 
 struct SimpleApp {
     importer: TabularImporter,
+    config: TabularImporterConfig,
 }
 
 impl Default for SimpleApp {
@@ -11,9 +13,12 @@ impl Default for SimpleApp {
             RequiredColumn::new("key", VariantTy::Str).synonyms(["parameter", "parameter_name"]),
             RequiredColumn::new("value", VariantTy::U32),
         ]);
-        let mut importer = TabularImporter::new(required_columns);
+        let importer = TabularImporter::new(required_columns);
         // importer.set_max_lines(1000);
-        Self { importer }
+        Self {
+            importer,
+            config: Default::default(),
+        }
     }
 }
 
@@ -34,7 +39,7 @@ impl eframe::App for SimpleApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.importer.show(ui);
+            self.importer.show(&mut self.config, ui, ui.id());
         });
     }
 }

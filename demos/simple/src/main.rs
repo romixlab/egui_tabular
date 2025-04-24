@@ -1,11 +1,13 @@
 use egui_tabular::backend::ColumnUid;
 use egui_tabular::backends::variant::VariantBackend;
 use egui_tabular::rvariant::{Variant, VariantTy};
+use egui_tabular::table_view::TableViewConfig;
 use egui_tabular::TableView;
 
 struct SimpleApp {
     backend: VariantBackend,
     viewer: TableView,
+    config: TableViewConfig,
 }
 
 impl Default for SimpleApp {
@@ -29,6 +31,7 @@ impl Default for SimpleApp {
         Self {
             backend,
             viewer: TableView::new(),
+            config: Default::default(),
         }
     }
 }
@@ -50,7 +53,8 @@ impl eframe::App for SimpleApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.viewer.show(&mut self.backend, ui);
+            self.viewer
+                .show(&mut self.backend, &mut self.config, ui, ui.id());
         });
     }
 }
