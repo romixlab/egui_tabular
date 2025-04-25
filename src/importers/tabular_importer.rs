@@ -1,4 +1,4 @@
-use super::csv::{CsvImporter, CsvImporterConfig, Separator};
+use super::csv::CsvImporter;
 use crate::backends::variant::VariantBackend;
 use crate::table_view::TableViewConfig;
 use crate::{RequiredColumns, TableView};
@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
+use tabular_core::{CsvImporterConfig, Separator};
 
 pub struct TabularImporter {
     csv: CsvImporter,

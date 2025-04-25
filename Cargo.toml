@@ -11,7 +11,8 @@ members = [
 ]
 
 [workspace.dependencies]
-rvariant = { path = "../rvariant" }
+rvariant = { path = "../rvariant", features = ["serde"] }
+strum = { version = "0.27", features = ["derive"] }
 
 [dependencies]
 egui = { version = "0.31" }
@@ -23,7 +24,7 @@ rfd = "0.15"
 log = "0"
 serde = { version = "1", features = ["derive"] }
 csv = "1.3"
-strum = { version = "0.27", features = ["derive"] }
+strum = { workspace = true }
 tap = "1.0"
 tabular_core = { path = "./tabular_core" }
 rvariant = { workspace = true }

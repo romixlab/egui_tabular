@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 rvariant = { workspace = true }
+strum = { workspace = true }

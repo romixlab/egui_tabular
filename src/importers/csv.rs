@@ -3,11 +3,10 @@ use crate::backends::variant::VariantBackend;
 use crate::util::base_26;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use tabular_core::backend::TableBackend;
-use tabular_core::ColumnUid;
+use tabular_core::{ColumnUid, CsvImporterConfig, Separator};
 
 pub(crate) struct CsvImporter {
     required_columns: RequiredColumns,
@@ -43,37 +42,6 @@ impl IoStatus {
             IoStatus::Loaded => false,
             IoStatus::Edited => false,
             IoStatus::UnknownSeparator => true,
-        }
-    }
-}
-
-#[derive(
-    strum::EnumIter, strum::Display, PartialEq, Copy, Clone, Default, Serialize, Deserialize,
-)]
-// #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Separator {
-    #[default]
-    Auto,
-    Comma,
-    Tab,
-    Semicolon,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct CsvImporterConfig {
-    pub(crate) separator: Separator,
-    separator_u8: u8,
-    pub(crate) skip_first_rows: usize,
-    pub(crate) has_headers: bool,
-}
-
-impl Default for CsvImporterConfig {
-    fn default() -> Self {
-        CsvImporterConfig {
-            separator: Default::default(),
-            separator_u8: b',',
-            skip_first_rows: 0,
-            has_headers: true,
         }
     }
 }
@@ -271,19 +239,5 @@ impl CsvImporter {
 
     pub fn status(&self) -> &IoStatus {
         &self.state.status
-    }
-}
-
-impl CsvImporterConfig {
-    pub fn separator(&self) -> u8 {
-        self.separator_u8
-    }
-
-    pub fn skip_first_rows(&self) -> usize {
-        self.skip_first_rows
-    }
-
-    pub fn has_headers(&self) -> bool {
-        self.has_headers
     }
 }

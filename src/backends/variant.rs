@@ -187,6 +187,10 @@ impl VariantBackend {
         }
         self.one_shot_flags.columns_changed = true;
     }
+
+    pub fn clear_metadata(&mut self) {
+        self.cell_metadata.clear();
+    }
 }
 
 impl TableBackend for VariantBackend {
