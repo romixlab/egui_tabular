@@ -1,4 +1,4 @@
-use egui::{Id, Ui};
+use egui::{Color32, Id, Ui};
 use egui_extras::Column as TableColumnConfig;
 use tabular_core::{CellCoord, ColumnUid};
 
@@ -21,4 +21,14 @@ pub trait TableFrontend {
     }
 
     fn custom_column_ui(&mut self, _col_uid: ColumnUid, _ui: &mut Ui, _id: Id) {}
+
+    /// Override default cell color
+    fn cell_color(&self, _coord: CellCoord) -> Option<Color32> {
+        None
+    }
+
+    /// Show tooltip on cell hover
+    fn cell_tooltip(&self, _coord: CellCoord) -> Option<&str> {
+        None
+    }
 }

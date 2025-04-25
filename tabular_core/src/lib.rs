@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod backend;
 
-pub use rvariant::{Variant, VariantTy};
+pub use rvariant::{TimeUnit, Variant, VariantTy};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct ColumnUid(pub u32);

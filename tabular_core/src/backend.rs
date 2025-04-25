@@ -135,7 +135,7 @@ pub struct OneShotFlags {
     pub reloaded: bool,
     /// Set once column names, types and default values was loaded
     pub columns_reset: bool,
-    /// Set when one or more columns are changed
+    /// Set when one or more columns are changed (name / type)
     pub columns_changed: bool,
     /// Set once after row uid set was loaded or changed
     pub row_set_updated: bool,
@@ -145,4 +145,6 @@ pub struct OneShotFlags {
     // pub cells_updated: Vec<CellCoord>,
     /// Set once when clear() is called.
     pub cleared: bool,
+    /// Set when different mapping is selected for a column
+    pub column_mapping_changed: Option<ColumnUid>,
 }

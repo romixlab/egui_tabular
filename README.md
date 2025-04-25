@@ -24,13 +24,14 @@ TODO: Add web demo.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.
 * [ ] Keyboard shortcuts and navigation.
 * [ ] Copy-paste support for cells and blocks of cells.
-* [ ] Ability to add lints and icons to cells or change their background color.
+* [x] Ability to add lints and icons to cells or change their background color.
 * [x] Support for cells with various heights.
 * [x] Drag&drop column reordering.
 * [ ] Export to CSV and XLS.
 * [ ] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
 * [ ] Disable/enable rows and columns (show hatch pattern when disabled).
+* [x] Change a column type and try to turn data into requested type (VariantBackend, only from code now).
 
 ## Non-goals
 

@@ -1,5 +1,5 @@
 use crate::frontend::TableFrontend;
-use egui::{ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
+use egui::{Color32, ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
 use tabular_core::backend::{
@@ -9,6 +9,7 @@ use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
+    cell_metadata: HashMap<CellCoord, CellMetadata>,
     row_order: Vec<RowUid>,
     next_row_uid: RowUid,
     columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
@@ -25,10 +26,18 @@ struct VariantColumn {
     default: Option<Variant>,
 }
 
+#[derive(Default)]
+struct CellMetadata {
+    color: Option<Color32>,
+    conversion_fail_message: Option<String>,
+    tooltip: Option<String>,
+}
+
 impl VariantBackend {
     pub fn new(columns: impl IntoIterator<Item = (String, VariantTy, Option<Variant>)>) -> Self {
         VariantBackend {
             cell_data: Default::default(),
+            cell_metadata: Default::default(),
             row_order: vec![],
             next_row_uid: RowUid(0),
             columns: columns
@@ -146,6 +155,37 @@ impl VariantBackend {
     pub fn push_mapping_choices<S: AsRef<str>>(&mut self, choices: impl Iterator<Item = S>) {
         self.column_mapping_choices
             .extend(choices.map(|s| s.as_ref().to_string()));
+    }
+
+    pub fn column_ty(&self, col_uid: ColumnUid) -> Option<VariantTy> {
+        self.columns.get(&col_uid).map(|(_b, c)| c.ty)
+    }
+
+    pub fn turn_column_into(&mut self, col_uid: ColumnUid, ty: VariantTy) {
+        let Some((b, c)) = self.columns.get_mut(&col_uid) else {
+            return;
+        };
+        if c.ty == ty {
+            return;
+        }
+        c.ty = ty;
+        b.ty = format!("{ty}");
+        for row in &self.row_order {
+            let coord = (*row, col_uid).into();
+            if let Some(value) = self.cell_data.get_mut(&coord) {
+                let meta = self.cell_metadata.entry(coord).or_default();
+                match value.clone().convert_to(ty) {
+                    Ok(value_converted) => {
+                        *value = value_converted;
+                        meta.conversion_fail_message = None;
+                    }
+                    Err(e) => {
+                        meta.conversion_fail_message = Some(format!("{e:?}"));
+                    }
+                }
+            }
+        }
+        self.one_shot_flags.columns_changed = true;
     }
 }
 
@@ -355,5 +395,33 @@ impl TableFrontend for VariantBackend {
         }
         self.cell_edit = Some((coord, value));
         resp
+    }
+
+    fn cell_color(&self, coord: CellCoord) -> Option<Color32> {
+        self.cell_metadata
+            .get(&coord)
+            .map(|meta| {
+                if meta.conversion_fail_message.is_some() {
+                    Some(Color32::ORANGE)
+                } else {
+                    meta.color
+                }
+            })
+            .flatten()
+    }
+
+    fn cell_tooltip(&self, coord: CellCoord) -> Option<&str> {
+        self.cell_metadata
+            .get(&coord)
+            .map(|meta| {
+                if let Some(msg) = &meta.conversion_fail_message {
+                    Some(msg.as_str())
+                } else if let Some(tooltip) = &meta.tooltip {
+                    Some(tooltip.as_str())
+                } else {
+                    None
+                }
+            })
+            .flatten()
     }
 }

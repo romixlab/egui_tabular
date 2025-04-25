@@ -99,13 +99,17 @@ impl TableView {
                             let (_, resp) = h.col(|ui| {
                                 // ui.horizontal_centered(|ui| {
                                 table.custom_column_ui(column_uid, ui, id);
-                                Self::column_mapping_ui(
+                                let changed = Self::column_mapping_ui(
                                     table.column_mapping_choices(),
                                     column_uid,
                                     &mut config.column_mapped_to,
                                     ui,
                                     id,
                                 );
+                                if changed {
+                                    table.one_shot_flags_mut().column_mapping_changed =
+                                        Some(column_uid);
+                                }
                                 let col_name = Label::new(
                                     RichText::new(backend_column.name.as_str())
                                         .strong()
@@ -319,17 +323,25 @@ impl TableView {
                         )
                     })
                     .unwrap_or((false, false, false, false));
+
+                let coord = CellCoord { row_uid, col_uid };
                 let (rect, resp) = row.col(|ui| {
                     let ui_max_rect = ui.max_rect();
 
-                    if is_current_cell_in_selection && !is_editing_cell_on_this_row {
+                    if let Some(backend_color) = table.cell_color(coord) {
+                        ui.painter().rect_filled(
+                            ui_max_rect.expand(0.),
+                            CornerRadius::ZERO,
+                            backend_color.gamma_multiply(0.2),
+                        );
+                    } else if is_current_cell_in_selection && !is_editing_cell_on_this_row {
                         // Light orange background inside selection
                         ui.painter().rect_filled(
                             ui_max_rect.expand(0.),
                             CornerRadius::ZERO,
                             visual.warn_fg_color.gamma_multiply(0.2),
                         );
-                    }
+                    };
 
                     // Lines on the first and last row of selection
                     let st = Stroke {
@@ -353,7 +365,6 @@ impl TableView {
                         .color = visual.strong_text_color();
 
                     if is_editing_current_cell {
-                        let coord = CellCoord { row_uid, col_uid };
                         let _resp = table.show_cell_editor(coord, ui, id);
                         if ui.input(|i| i.key_pressed(Key::Enter)) {
                             commit_edit = Some(coord)
@@ -363,7 +374,7 @@ impl TableView {
                         }
                     } else {
                         ui.add_enabled_ui(false, |ui| {
-                            table.show_cell_view(CellCoord { row_uid, col_uid }, ui, id);
+                            table.show_cell_view(coord, ui, id);
                         });
                     }
                 });
@@ -385,6 +396,9 @@ impl TableView {
                     }
                 }
                 if resp.double_clicked_by(PointerButton::Primary) {}
+                if let Some(tooltip) = table.cell_tooltip(coord) {
+                    resp.on_hover_text(tooltip);
+                }
             } // for col_uid in used_columns
 
             if config.use_heterogeneous_row_heights {
@@ -428,9 +442,9 @@ impl TableView {
         column_mapped_to: &mut HashMap<ColumnUid, String>,
         ui: &mut Ui,
         id: Id,
-    ) {
+    ) -> bool {
         if choices.is_empty() {
-            return;
+            return false;
         }
         let is_used_elsewhere = if let Some(selected) = column_mapped_to.get(&col_uid) {
             if selected.is_empty() {
@@ -453,17 +467,23 @@ impl TableView {
                 RichText::new(selected.as_str())
             }
         };
+        let mut changed = false;
         let resp = egui::ComboBox::from_id_salt(id.with(col_uid.0))
             .selected_text(selected_text)
             .show_ui(ui, |ui| {
-                ui.selectable_value(selected, String::new(), "Skip");
+                changed |= ui
+                    .selectable_value(selected, String::new(), "Skip")
+                    .changed();
                 for m in choices {
-                    ui.selectable_value(selected, m.clone(), m.as_str());
+                    changed |= ui
+                        .selectable_value(selected, m.clone(), m.as_str())
+                        .changed();
                 }
             })
             .response;
         if is_used_elsewhere {
             resp.on_hover_text("Cannot map more than one column to the same entity");
         }
+        changed
     }
 }
