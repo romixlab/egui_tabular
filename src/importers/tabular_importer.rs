@@ -75,6 +75,9 @@ impl TabularImporter {
             } else {
                 ui.label("Picked file:");
             }
+            if let Some(e) = &self.open_error {
+                ui.colored_label(ui.visuals().warn_fg_color, e);
+            }
             if ui.button("Open").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     config.picked_file = Some(path.clone());
@@ -149,7 +152,10 @@ impl TabularImporter {
             return;
         };
         let file = match File::open(path) {
-            Ok(file) => file,
+            Ok(file) => {
+                self.open_error = None;
+                file
+            }
             Err(e) => {
                 self.open_error = Some(format!("{e}"));
                 return;
@@ -165,7 +171,7 @@ impl TabularImporter {
     }
 
     pub fn has_warnings(&self) -> bool {
-        false
+        self.open_error.is_some()
     }
 
     pub fn backend(&self) -> &VariantBackend {
