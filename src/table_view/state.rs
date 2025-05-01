@@ -7,6 +7,14 @@ pub(super) struct State {
     pub(super) columns_ordered: Vec<ColumnUid>,
     pub(super) columns: HashMap<ColumnUid, BackendColumn>,
     pub(super) selected_range: Option<SelectedRange>,
+
+    pub(crate) pasting_block_width: usize,
+    pub(crate) pasting_block_with_holes: bool,
+    pub(crate) about_to_paste_rows: Vec<Vec<String>>,
+    pub(crate) create_rows_on_paste: bool,
+    pub(crate) fill_with_same_on_paste: bool,
+    pub(crate) create_cols_on_paste: bool,
+    pub(crate) create_adhoc_cols_on_paste: bool,
 }
 
 impl Default for State {
@@ -16,6 +24,13 @@ impl Default for State {
             columns_ordered: Vec::new(),
             columns: Default::default(),
             selected_range: None,
+            pasting_block_width: 0,
+            pasting_block_with_holes: false,
+            about_to_paste_rows: vec![],
+            create_rows_on_paste: false,
+            fill_with_same_on_paste: false,
+            create_cols_on_paste: false,
+            create_adhoc_cols_on_paste: false,
         }
     }
 }
@@ -56,6 +71,14 @@ impl SelectedRange {
 
     pub fn row_end(&self) -> usize {
         self.row_end
+    }
+
+    pub fn col_start(&self) -> usize {
+        self.col_start
+    }
+
+    pub fn col_end(&self) -> usize {
+        self.col_end
     }
 
     pub fn is_editing(&self) -> bool {
@@ -117,5 +140,49 @@ impl SelectedRange {
 
     pub fn contains_row(&self, row_idx: usize) -> bool {
         row_idx >= self.row_start && row_idx <= self.row_end
+    }
+
+    pub fn move_left(&mut self, expand: bool) {
+        if self.col_start > 0 {
+            self.col_start = self.col_start - 1;
+            if !expand {
+                self.col_end = self.col_end - 1;
+            }
+        }
+    }
+
+    pub fn move_right(&mut self, expand: bool, col_count: usize) {
+        if self.col_end < col_count - 1 {
+            self.col_end += 1;
+            if !expand {
+                self.col_start += 1;
+            }
+        }
+    }
+
+    pub fn move_up(&mut self, expand: bool) {
+        if self.row_start > 0 {
+            self.row_start = self.row_start - 1;
+            if !expand {
+                self.row_end = self.row_end - 1;
+            }
+        }
+    }
+
+    pub fn move_down(&mut self, expand: bool, row_count: usize) {
+        if self.row_end < row_count - 1 {
+            self.row_end += 1;
+            if !expand {
+                self.row_start = self.row_start + 1;
+            }
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.col_end - self.col_start + 1
+    }
+
+    pub fn height(&self) -> usize {
+        self.row_end - self.row_start + 1
     }
 }

@@ -81,8 +81,17 @@ pub trait TableBackend {
     // Use provided values, if no value is provided, Column's default will be used.
     // If there are not default value for Column, ui should show warning and do not allow committing.
     // If commit is tried anyway, it will be rejected.
-    // fn create_row(&mut self, values: HashMap<u32, Variant>) -> Option<u32>;
+    fn create_row(
+        &mut self,
+        _values: impl IntoIterator<Item = (ColumnUid, Variant)>,
+    ) -> Option<RowUid> {
+        None
+    }
     // fn remove_rows(&mut self, row_ids: Vec<u32>);
+    /// Create new column if possible
+    fn create_column(&mut self) -> Option<ColumnUid> {
+        None
+    }
 
     /// Called when a cell is selected/highlighted.
     fn on_highlight_cell(&mut self, coord: CellCoord) {

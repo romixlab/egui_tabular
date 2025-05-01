@@ -1,4 +1,5 @@
 pub mod config;
+mod interaction;
 mod state;
 
 use crate::frontend::TableFrontend;
@@ -56,6 +57,12 @@ impl TableView {
         if self.state.columns_ordered.is_empty() {
             return ui.label("No columns");
         }
+
+        self.handle_key_input(table, ui);
+        if ui.rect_contains_pointer(ui.max_rect()) {
+            self.handle_paste(table, ui);
+        }
+        self.handle_paste_continue(table, id, ui);
 
         let ctx = &ui.ctx().clone();
         let style = ui.style().clone();

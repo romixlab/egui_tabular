@@ -22,8 +22,8 @@ TODO: Add web demo.
 * [x] No need to keep all data in memory (if backend supports it).
 * [ ] Support for sorting.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.
-* [ ] Keyboard shortcuts and navigation.
-* [ ] Copy-paste support for cells and blocks of cells.
+* [x] Keyboard shortcuts and navigation.
+* [x] Copy-paste support for cells and blocks of cells.
 * [x] Ability to add lints and icons to cells or change their background color.
 * [x] Support for cells with various heights.
 * [x] Drag&drop column reordering.

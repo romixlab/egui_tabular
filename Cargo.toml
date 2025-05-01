@@ -19,7 +19,7 @@ egui = { version = "0.31" }
 egui_extras = { version = "0.31", features = ["serde"] }
 #egui-modal = { version = "0.6" }
 #egui-phosphor = { version = "0.7", features = ["fill"] }
-#itertools = "0.13"
+itertools = "0.14"
 rfd = "0.15"
 log = "0"
 serde = { version = "1", features = ["derive"] }

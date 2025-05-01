@@ -1,4 +1,5 @@
 use crate::frontend::TableFrontend;
+use crate::util::base_26;
 use egui::{Color32, ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
@@ -74,7 +75,7 @@ impl VariantBackend {
         }
     }
 
-    pub fn insert_row(&mut self, values: impl IntoIterator<Item = (ColumnUid, Variant)>) {
+    pub fn insert_row(&mut self, values: impl IntoIterator<Item = (ColumnUid, Variant)>) -> RowUid {
         let mut provided_cells = vec![];
         for (col_uid, v) in values {
             let coord = CellCoord {
@@ -97,7 +98,9 @@ impl VariantBackend {
         }
         self.row_order.push(self.next_row_uid);
         self.one_shot_flags.row_set_updated = true;
-        self.next_row_uid = RowUid(self.next_row_uid.0 + 1)
+        let r = self.next_row_uid;
+        self.next_row_uid = RowUid(self.next_row_uid.0 + 1);
+        r
     }
 
     /// Remove all columns and all data
@@ -235,6 +238,18 @@ impl TableBackend for VariantBackend {
 
     fn row_count(&self) -> usize {
         self.row_order.len()
+    }
+
+    fn create_row(
+        &mut self,
+        values: impl IntoIterator<Item = (ColumnUid, Variant)>,
+    ) -> Option<RowUid> {
+        Some(self.insert_row(values))
+    }
+
+    fn create_column(&mut self) -> Option<ColumnUid> {
+        let col_name = base_26(self.columns.len() as u32);
+        Some(self.insert_column(None, col_name, vec![], VariantTy::Str, None, false, true))
     }
 
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid> {
