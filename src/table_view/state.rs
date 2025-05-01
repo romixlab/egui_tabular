@@ -65,6 +65,16 @@ impl SelectedRange {
         }
     }
 
+    pub fn rect(width: usize, height: usize) -> Self {
+        SelectedRange {
+            row_start: 0,
+            row_end: height.saturating_sub(1),
+            col_start: 0,
+            col_end: width.saturating_sub(1),
+            is_editing: false,
+        }
+    }
+
     pub fn row_start(&self) -> usize {
         self.row_start
     }

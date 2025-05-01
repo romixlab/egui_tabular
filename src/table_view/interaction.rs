@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::table_view::state::SelectedRange;
 use crate::TableView;
 use egui::{Event, Id, Key, Modal, Ui};
 use itertools::Itertools;
@@ -44,7 +45,12 @@ impl TableView {
         self.handle_selection_moves(data.row_count(), ui);
     }
 
-    pub(crate) fn handle_paste(&mut self, data: &mut impl TableBackend, ui: &mut Ui) {
+    pub(crate) fn handle_paste(
+        &mut self,
+        paste_from_empty: bool,
+        data: &mut impl TableBackend,
+        ui: &mut Ui,
+    ) {
         let paste = ui.input(|i| {
             i.events
                 .iter()
@@ -76,7 +82,22 @@ impl TableView {
                 })
                 == 0;
         self.state.pasting_block_with_holes = !is_equal_lengths;
+        println!("{}x{}", self.state.pasting_block_width, rows.len(),);
 
+        if paste_from_empty {
+            self.state.selected_range = Some(SelectedRange::rect(
+                self.state.pasting_block_width,
+                rows.len(),
+            ));
+            for _ in 0..self.state.pasting_block_width {
+                data.create_column();
+            }
+            self.state.columns_ordered = data.used_columns().collect();
+            self.state.columns_ordered.sort();
+            for _ in 0..rows.len() {
+                data.create_row([]);
+            }
+        }
         if let Some(selected_range) = &self.state.selected_range {
             let selection_is_exact = rows.len() == selected_range.height()
                 && self.state.pasting_block_width == selected_range.width()
@@ -198,7 +219,8 @@ impl TableView {
                 col_ids.push(data.create_column());
             }
         }
-        let mut changed_coords = vec![];
+        // let mut changed_coords = vec![];
+        println!("row ids: {row_ids:?}");
 
         if self.state.fill_with_same_on_paste {
             for (row_id, row) in row_ids
@@ -211,7 +233,7 @@ impl TableView {
                         continue;
                     };
                     let coord = (row_uid, *col_uid).into();
-                    changed_coords.push(coord);
+                    // changed_coords.push(coord);
                     data.set(coord, Variant::Str(cell.clone()));
                 }
             }
@@ -226,7 +248,7 @@ impl TableView {
                         continue;
                     };
                     let coord = (row_id, *col_uid).into();
-                    changed_coords.push(coord);
+                    // changed_coords.push(coord);
                     data.set(coord, Variant::Str(cell.clone()));
                 }
             }

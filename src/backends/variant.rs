@@ -199,6 +199,7 @@ impl VariantBackend {
 impl TableBackend for VariantBackend {
     fn clear(&mut self) {
         self.cell_data.clear();
+        self.cell_metadata.clear();
         self.row_order.clear();
         self.one_shot_flags.row_set_updated = true;
         self.next_row_uid = RowUid(0);
@@ -248,7 +249,7 @@ impl TableBackend for VariantBackend {
     }
 
     fn create_column(&mut self) -> Option<ColumnUid> {
-        let col_name = base_26(self.columns.len() as u32);
+        let col_name = base_26(self.columns.len() as u32 + 1);
         Some(self.insert_column(None, col_name, vec![], VariantTy::Str, None, false, true))
     }
 

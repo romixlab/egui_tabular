@@ -33,10 +33,16 @@ impl TableView {
         ui: &mut Ui,
         id: Id,
     ) -> Response {
+        let mut is_no_columns = self.state.columns_ordered.is_empty();
+        if ui.rect_contains_pointer(ui.max_rect()) {
+            self.handle_paste(is_no_columns, table, ui);
+        }
+
         if table.one_shot_flags_internal().columns_reset {
-            log::trace!("Updating col info");
+            // log::trace!("Updating col info");
             self.state.columns_ordered = table.used_columns().collect();
             self.state.columns_ordered.sort();
+            is_no_columns = self.state.columns_ordered.is_empty();
         }
         if table.one_shot_flags_internal().columns_reset
             || table.one_shot_flags_internal().columns_changed
@@ -54,14 +60,17 @@ impl TableView {
                 .resize(table.row_count(), config.minimum_row_height);
             self.state.row_heights.fill(config.minimum_row_height);
         }
-        if self.state.columns_ordered.is_empty() {
-            return ui.label("No columns");
+
+        if is_no_columns {
+            table.one_shot_flags_archive();
+            *table.one_shot_flags_mut() = OneShotFlags::default();
+            if ui.button("Create column").clicked() {
+                table.create_column();
+            }
+            return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
         self.handle_key_input(table, ui);
-        if ui.rect_contains_pointer(ui.max_rect()) {
-            self.handle_paste(table, ui);
-        }
         self.handle_paste_continue(table, id, ui);
 
         let ctx = &ui.ctx().clone();
@@ -117,13 +126,15 @@ impl TableView {
                                     table.one_shot_flags_mut().column_mapping_changed =
                                         Some(column_uid);
                                 }
-                                let col_name = Label::new(
-                                    RichText::new(backend_column.name.as_str())
-                                        .strong()
-                                        .monospace(),
-                                )
-                                .selectable(false)
-                                .wrap_mode(TextWrapMode::Extend);
+                                let col_name = if backend_column.name.is_empty() {
+                                    "No name"
+                                } else {
+                                    backend_column.name.as_str()
+                                };
+                                let col_name =
+                                    Label::new(RichText::new(col_name).strong().monospace())
+                                        .selectable(false)
+                                        .wrap_mode(TextWrapMode::Extend);
                                 ui.add(col_name)
                                     .on_hover_cursor(CursorIcon::Grab)
                                     .on_hover_ui(|ui| {
