@@ -2,7 +2,7 @@ use super::csv::CsvImporter;
 use crate::backends::variant::VariantBackend;
 use crate::table_view::TableViewConfig;
 use crate::{RequiredColumns, TableView};
-use egui::{Id, RichText, Slider, Ui};
+use egui::{Button, Id, RichText, Slider, Ui};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
@@ -59,7 +59,13 @@ impl TabularImporter {
         }
     }
 
-    pub fn show(&mut self, config: &mut TabularImporterConfig, ui: &mut Ui, id: Id) {
+    pub fn show(
+        &mut self,
+        config: &mut TabularImporterConfig,
+        max_height: Option<f32>,
+        ui: &mut Ui,
+        id: Id,
+    ) {
         ui.horizontal(|ui| {
             let label = if let Some(limit) = self.load_rows_limit {
                 RichText::new(format!("Preview file ({limit} rows):"))
@@ -73,7 +79,7 @@ impl TabularImporter {
                         .unwrap_or("Path contains invalid Unicode, but load should work anyway"),
                 );
             } else {
-                ui.label("Picked file:");
+                ui.label("Not selected");
             }
             if let Some(e) = &self.open_error {
                 ui.colored_label(ui.visuals().warn_fg_color, e);
@@ -85,60 +91,70 @@ impl TabularImporter {
                     self.reload(config);
                 }
             }
-            if ui.button("Reload").clicked() {
+            if ui
+                .add_enabled(config.picked_file.is_some(), Button::new("Reload"))
+                .clicked()
+            {
                 self.reload(config);
             }
         });
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("CSV Options").strong().monospace());
 
-            ui.label("Separator:");
-            let delim_changed = egui::ComboBox::from_label("")
-                .selected_text(format!("{}", config.importer_config.separator))
-                .show_ui(ui, |ui| {
-                    let mut changed = false;
-                    for s in Separator::iter() {
-                        changed |= ui
-                            .selectable_value(
-                                &mut config.importer_config.separator,
-                                s,
-                                s.to_string(),
-                            )
-                            .changed();
-                    }
-                    changed
-                })
-                .inner;
-            if let Some(true) = delim_changed {
-                self.reload(config);
-            }
-            if ui
-                .checkbox(&mut config.importer_config.has_headers, "Has header row")
-                .changed()
-            {
-                self.reload(config);
-            }
+            ui.add_enabled_ui(config.picked_file.is_some(), |ui| {
+                ui.label("Separator:");
+                let delim_changed = egui::ComboBox::from_label("")
+                    .selected_text(format!("{}", config.importer_config.separator))
+                    .show_ui(ui, |ui| {
+                        let mut changed = false;
+                        for s in Separator::iter() {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut config.importer_config.separator,
+                                    s,
+                                    s.to_string(),
+                                )
+                                .changed();
+                        }
+                        changed
+                    })
+                    .inner;
+                if let Some(true) = delim_changed {
+                    self.reload(config);
+                }
+                if ui
+                    .checkbox(&mut config.importer_config.has_headers, "Has header row")
+                    .changed()
+                {
+                    self.reload(config);
+                }
 
-            ui.separator();
-            ui.label("Skip first rows:");
-            if ui
-                .add(Slider::new(
-                    &mut config.importer_config.skip_first_rows,
-                    0..=10,
-                ))
-                .on_hover_text("If file contains additional rows before header row, skip them")
-                .changed()
-            {
-                self.reload(config);
-            }
+                ui.separator();
+                ui.label("Skip first rows:");
+                if ui
+                    .add(Slider::new(
+                        &mut config.importer_config.skip_first_rows,
+                        0..=10,
+                    ))
+                    .on_hover_text("If file contains additional rows before header row, skip them")
+                    .changed()
+                {
+                    self.reload(config);
+                }
+            });
         });
         if self.csv.status().is_error() {
             // error_label(csv_table.status(), ui);
             ui.label(format!("{:?}", self.csv.status()));
         }
         ui.separator();
-        self.table_view
-            .show(&mut self.backend, &mut config.view_config, ui, id);
+        self.table_view.show(
+            &mut self.backend,
+            &mut config.view_config,
+            max_height,
+            ui,
+            id,
+        );
     }
 
     pub fn load(&mut self, path: PathBuf, config: &mut TabularImporterConfig) {
