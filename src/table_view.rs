@@ -30,6 +30,7 @@ impl TableView {
         &mut self,
         table: &mut T,
         config: &mut TableViewConfig,
+        max_height: Option<f32>,
         ui: &mut Ui,
         id: Id,
     ) -> Response {
@@ -38,28 +39,8 @@ impl TableView {
             self.handle_paste(is_no_columns, table, ui);
         }
 
-        if table.one_shot_flags_internal().columns_reset {
-            // log::trace!("Updating col info");
-            self.state.columns_ordered = table.used_columns().collect();
-            self.state.columns_ordered.sort();
-            is_no_columns = self.state.columns_ordered.is_empty();
-        }
-        if table.one_shot_flags_internal().columns_reset
-            || table.one_shot_flags_internal().columns_changed
-        {
-            self.state.columns.clear();
-            for col_uid in self.state.columns_ordered.iter() {
-                if let Some(info) = table.column_info(*col_uid) {
-                    self.state.columns.insert(*col_uid, info.clone());
-                }
-            }
-        }
-        if table.one_shot_flags_internal().row_set_updated {
-            self.state
-                .row_heights
-                .resize(table.row_count(), config.minimum_row_height);
-            self.state.row_heights.fill(config.minimum_row_height);
-        }
+        self.check_col_set_updated(table, &mut is_no_columns);
+        self.check_row_set_updated(table, config);
 
         if is_no_columns {
             table.one_shot_flags_archive();
@@ -70,7 +51,9 @@ impl TableView {
             return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
-        self.handle_key_input(table, ui);
+        if ui.rect_contains_pointer(ui.max_rect()) {
+            self.handle_key_input(table, ui);
+        }
         self.handle_paste_continue(table, id, ui);
 
         let ctx = &ui.ctx().clone();
@@ -83,11 +66,22 @@ impl TableView {
         // Temporarily take out columns Vec, to satisfy the borrow checker.
         let columns = core::mem::take(&mut self.state.columns_ordered);
         let mut swap_columns = None;
+        let show_tool_column = true;
 
         ScrollArea::horizontal()
             .drag_to_scroll(false)
             .show(ui, |ui| {
                 let mut builder = egui_extras::TableBuilder::new(ui);
+                builder = if show_tool_column {
+                    builder.column(Column::auto().clip(!config.use_heterogeneous_row_heights))
+                } else {
+                    builder
+                };
+                let mut builder = if let Some(m) = max_height {
+                    builder.max_scroll_height(m)
+                } else {
+                    builder
+                };
                 for _column in &columns {
                     // Note on clip: At least labels won't try to enlarge cell's area,
                     // effectively rendering heterogeneous row heights logic useless.
@@ -107,6 +101,9 @@ impl TableView {
                     .max_scroll_height(f32::MAX)
                     .sense(Sense::click_and_drag())
                     .header(20., |mut h| {
+                        if show_tool_column {
+                            h.col(|_ui| {});
+                        }
                         for column_uid in columns.iter().copied() {
                             let Some(backend_column) = self.state.columns.get(&column_uid) else {
                                 continue;
@@ -189,7 +186,7 @@ impl TableView {
                                 swap_columns = Some((column_uid, *payload));
                             }
 
-                            Self::column_context_menu(backend_column, resp);
+                            Self::column_context_menu(backend_column, resp, table);
                         }
 
                         // Account for header response to calculate total response.
@@ -210,6 +207,7 @@ impl TableView {
                             id,
                             &columns,
                             resp_total,
+                            show_tool_column,
                         );
                     });
             });
@@ -220,18 +218,67 @@ impl TableView {
             }
         });
 
+        self.check_col_set_updated(table, &mut is_no_columns);
+
+        if table.row_count() == 0 {
+            let create_row = ui.button("Add row");
+            if create_row.clicked() {
+                table.create_row([]);
+            }
+            create_row.on_hover_text(
+                "When table is not empty, right click tool column cell to create more rows",
+            );
+        }
+        self.check_row_set_updated(table, config); // if modified rows during this render cycle
+
         table.one_shot_flags_archive();
         *table.one_shot_flags_mut() = OneShotFlags::default();
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
-    fn column_context_menu(col: &BackendColumn, resp: Response) {
+    fn check_col_set_updated(&mut self, table: &mut impl TableBackend, is_no_columns: &mut bool) {
+        if table.one_shot_flags_internal().columns_reset {
+            // log::trace!("Updating col info");
+            self.state.columns_ordered = table.used_columns().collect();
+            self.state.columns_ordered.sort();
+            *is_no_columns = self.state.columns_ordered.is_empty();
+        }
+        if table.one_shot_flags_internal().columns_reset
+            || table.one_shot_flags_internal().columns_changed
+        {
+            self.state.columns.clear();
+            for col_uid in self.state.columns_ordered.iter() {
+                if let Some(info) = table.column_info(*col_uid) {
+                    self.state.columns.insert(*col_uid, info.clone());
+                }
+            }
+        }
+    }
+
+    fn check_row_set_updated(
+        &mut self,
+        table: &mut impl TableBackend,
+        config: &mut TableViewConfig,
+    ) {
+        if table.one_shot_flags_internal().row_set_updated {
+            self.state
+                .row_heights
+                .resize(table.row_count(), config.minimum_row_height);
+            self.state.row_heights.fill(config.minimum_row_height);
+        }
+    }
+
+    fn column_context_menu(col: &BackendColumn, resp: Response, data: &mut impl TableBackend) {
         resp.context_menu(|ui| {
             if col.is_sortable {
                 if ui.button("Sort ascending").clicked() {
                     ui.close_menu();
                 }
                 if ui.button("Sort descending").clicked() {
+                    ui.close_menu();
+                }
+                if ui.button("Add column").clicked() {
+                    data.create_column();
                     ui.close_menu();
                 }
             }
@@ -302,6 +349,7 @@ impl TableView {
         id: Id,
         columns: &[ColumnUid],
         mut resp_total: Option<Response>,
+        show_tool_column: bool,
     ) -> Option<Response> {
         let visual = &style.visuals;
         let s = &mut self.state;
@@ -320,6 +368,18 @@ impl TableView {
                 .unwrap_or(false);
             if is_editing_cell_on_this_row {
                 row.set_selected(true);
+            }
+
+            if show_tool_column {
+                let (_, resp) = row.col(|ui| {
+                    ui.add(Label::new(format!("{row_idx}")).selectable(false));
+                });
+                resp.context_menu(|ui| {
+                    if ui.button("Add row below").clicked() {
+                        table.create_row([]);
+                        ui.close_menu();
+                    }
+                });
             }
 
             let mut next_frame_row_height = config.minimum_row_height;

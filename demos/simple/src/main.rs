@@ -54,7 +54,7 @@ impl eframe::App for SimpleApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.viewer
-                .show(&mut self.backend, &mut self.config, ui, ui.id());
+                .show(&mut self.backend, &mut self.config, None, ui, ui.id());
         });
     }
 }
