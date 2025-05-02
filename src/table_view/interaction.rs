@@ -42,6 +42,15 @@ impl TableView {
                 }
             }
         }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
+            self.state.selected_range = Some(SelectedRange::rect(
+                self.state.columns_ordered.len(),
+                data.row_count(),
+            ));
+        }
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            self.state.selected_range = None;
+        }
         self.handle_selection_moves(data.row_count(), ui);
     }
 
@@ -82,7 +91,6 @@ impl TableView {
                 })
                 == 0;
         self.state.pasting_block_with_holes = !is_equal_lengths;
-        println!("{}x{}", self.state.pasting_block_width, rows.len(),);
 
         if paste_from_empty {
             self.state.selected_range = Some(SelectedRange::rect(
@@ -97,6 +105,7 @@ impl TableView {
             for _ in 0..rows.len() {
                 data.create_row([]);
             }
+            data.one_shot_flags_mut().reloaded = true;
         }
         if let Some(selected_range) = &self.state.selected_range {
             let selection_is_exact = rows.len() == selected_range.height()
@@ -177,9 +186,12 @@ impl TableView {
                     }
                 },
                 |ui| {
-                    if ui.button("Paste").clicked() {
+                    if ui.button("Paste clip").clicked() {
                         should_paste = true;
                     }
+                    // if ui.button("Paste overflow").clicked() {
+                        // TODO: paste overflow
+                    // }
                 },
             );
         });
@@ -220,7 +232,7 @@ impl TableView {
             }
         }
         // let mut changed_coords = vec![];
-        println!("row ids: {row_ids:?}");
+        // println!("row ids: {row_ids:?}");
 
         if self.state.fill_with_same_on_paste {
             for (row_id, row) in row_ids
