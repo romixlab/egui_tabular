@@ -55,12 +55,22 @@ impl PartialEq for SelectedRange {
 }
 
 impl SelectedRange {
-    pub fn single(row_idx: usize, col_idx: usize) -> Self {
+    pub fn single_cell(row_idx: usize, col_idx: usize) -> Self {
         SelectedRange {
             row_start: row_idx,
             row_end: row_idx,
             col_start: col_idx,
             col_end: col_idx,
+            is_editing: false,
+        }
+    }
+
+    pub fn single_row(row_idx: usize, col_count: usize) -> Self {
+        SelectedRange {
+            row_start: row_idx,
+            row_end: row_idx,
+            col_start: 0,
+            col_end: col_count,
             is_editing: false,
         }
     }
@@ -135,6 +145,16 @@ impl SelectedRange {
         if !self.is_single_cell() {
             self.is_editing = false;
         }
+    }
+
+    pub fn stretch_multi_row(&mut self, row_idx: usize, col_count: usize) {
+        if row_idx < self.row_start {
+            self.row_start = row_idx;
+        } else if row_idx > self.row_end {
+            self.row_end = row_idx;
+        }
+        self.col_start = 0;
+        self.col_end = col_count;
     }
 
     pub fn contains(&self, row_idx: usize, col_idx: usize) -> bool {

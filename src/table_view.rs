@@ -98,7 +98,6 @@ impl TableView {
                     .drag_to_scroll(false) // Drag is used for selection
                     .striped(true)
                     .resizable(true)
-                    .max_scroll_height(f32::MAX)
                     .sense(Sense::click_and_drag())
                     .header(20., |mut h| {
                         if show_tool_column {
@@ -380,11 +379,22 @@ impl TableView {
                         ui.close_menu();
                     }
                 });
+                if resp.clicked() {
+                    if let Some(r) = &mut s.selected_range {
+                        if ctx.input(|i| i.modifiers.shift) {
+                            r.stretch_multi_row(row_idx, columns.len());
+                        } else {
+                            *r = SelectedRange::single_row(row_idx, columns.len());
+                        }
+                    } else {
+                        s.selected_range = Some(SelectedRange::single_row(row_idx, columns.len()));
+                    }
+                }
             }
 
             let mut next_frame_row_height = config.minimum_row_height;
             for (col_idx, col_uid) in columns.iter().copied().enumerate() {
-                let current_cell = SelectedRange::single(row_idx, col_idx);
+                let current_cell = SelectedRange::single_cell(row_idx, col_idx);
                 let (
                     is_first_row_in_selection,
                     is_last_row_in_selection,
