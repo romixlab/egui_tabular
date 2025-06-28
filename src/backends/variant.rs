@@ -249,6 +249,19 @@ impl TableBackend for VariantBackend {
         self.row_order.get(row_idx.0).copied()
     }
 
+    fn rows(&self) -> impl Iterator<Item = RowUid> {
+        (0..self.row_count()).filter_map(|row_idx| self.row_uid(VisualRowIdx(row_idx)))
+    }
+
+    fn un_skipped_rows(&self) -> impl Iterator<Item = RowUid> {
+        (0..self.row_count()).filter_map(|row_idx| {
+            let Some(row_uid) = self.row_uid(VisualRowIdx(row_idx)) else {
+                return None;
+            };
+            (!self.is_row_skipped(row_uid)).then_some(row_uid)
+        })
+    }
+
     fn get(&self, coord: CellCoord) -> Option<&Variant> {
         self.cell_data.get(&coord)
     }

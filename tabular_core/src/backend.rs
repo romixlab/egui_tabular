@@ -64,6 +64,8 @@ pub trait TableBackend {
     fn row_count(&self) -> usize;
     /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
+    fn rows(&self) -> impl Iterator<Item = RowUid>;
+    fn un_skipped_rows(&self) -> impl Iterator<Item = RowUid>;
 
     /// Get value as Variant, not necessary to implement, but useful if using TableBackend without UI.
     fn get(&self, coord: CellCoord) -> Option<&Variant> {
