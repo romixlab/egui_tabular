@@ -1,6 +1,7 @@
 pub mod config;
 mod interaction;
 mod state;
+mod tool_column;
 
 use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
@@ -185,7 +186,7 @@ impl TableView {
                                 swap_columns = Some((column_uid, *payload));
                             }
 
-                            Self::column_context_menu(backend_column, resp, table);
+                            Self::column_context_menu(backend_column, column_uid, resp, table);
                         }
 
                         // Account for header response to calculate total response.
@@ -267,7 +268,12 @@ impl TableView {
         }
     }
 
-    fn column_context_menu(col: &BackendColumn, resp: Response, data: &mut impl TableBackend) {
+    fn column_context_menu(
+        col: &BackendColumn,
+        col_uid: ColumnUid,
+        resp: Response,
+        data: &mut impl TableBackend,
+    ) {
         resp.context_menu(|ui| {
             if col.is_sortable {
                 if ui.button("Sort ascending").clicked() {
@@ -283,6 +289,12 @@ impl TableView {
             }
             if ui.button("Hide").clicked() {
                 ui.close_menu();
+            }
+            if data.are_cols_skippable() {
+                let mut skipped = data.is_col_skipped(col_uid);
+                if ui.checkbox(&mut skipped, "Skip").changed() {
+                    data.skip_col(col_uid, skipped);
+                }
             }
         });
     }
@@ -374,10 +386,7 @@ impl TableView {
                     ui.add(Label::new(format!("{row_idx}")).selectable(false));
                 });
                 resp.context_menu(|ui| {
-                    if ui.button("Add row below").clicked() {
-                        table.create_row([]);
-                        ui.close_menu();
-                    }
+                    tool_column::tool_column_context_menu_ui(ui, table, row_uid);
                 });
                 if resp.clicked() {
                     if let Some(r) = &mut s.selected_range {

@@ -1,8 +1,8 @@
 use crate::frontend::TableFrontend;
 use crate::util::base_26;
-use egui::{Color32, ComboBox, DragValue, Id, Response, TextEdit, Ui, Widget};
+use egui::{Color32, ComboBox, DragValue, Id, Pos2, Response, Stroke, TextEdit, Ui, Widget};
 use rvariant::{Variant, VariantTy};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tabular_core::backend::{
     BackendColumn, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
 };
@@ -12,6 +12,7 @@ pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
     cell_metadata: HashMap<CellCoord, CellMetadata>,
     row_order: Vec<RowUid>,
+    skipped_rows: HashSet<RowUid>,
     next_row_uid: RowUid,
     columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
     cell_edit: Option<(CellCoord, Variant)>,
@@ -40,6 +41,7 @@ impl VariantBackend {
             cell_data: Default::default(),
             cell_metadata: Default::default(),
             row_order: vec![],
+            skipped_rows: Default::default(),
             next_row_uid: RowUid(0),
             columns: columns
                 .into_iter()
@@ -53,6 +55,7 @@ impl VariantBackend {
                         is_sortable: true,
                         is_required: true,
                         is_used: true,
+                        is_skipped: false,
                     };
                     let variant_column = VariantColumn { ty, default };
                     (col_uid, (backend_column, variant_column))
@@ -139,6 +142,7 @@ impl VariantBackend {
             is_sortable: true,
             is_required,
             is_used,
+            is_skipped: false,
         };
         let variant_column = VariantColumn { ty, default };
         self.columns
@@ -241,18 +245,6 @@ impl TableBackend for VariantBackend {
         self.row_order.len()
     }
 
-    fn create_row(
-        &mut self,
-        values: impl IntoIterator<Item = (ColumnUid, Variant)>,
-    ) -> Option<RowUid> {
-        Some(self.insert_row(values))
-    }
-
-    fn create_column(&mut self) -> Option<ColumnUid> {
-        let col_name = base_26(self.columns.len() as u32 + 1);
-        Some(self.insert_column(None, col_name, vec![], VariantTy::Str, None, false, true))
-    }
-
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid> {
         self.row_order.get(row_idx.0).copied()
     }
@@ -273,8 +265,53 @@ impl TableBackend for VariantBackend {
         }
     }
 
+    fn create_row(
+        &mut self,
+        values: impl IntoIterator<Item = (ColumnUid, Variant)>,
+    ) -> Option<RowUid> {
+        Some(self.insert_row(values))
+    }
+
+    fn create_column(&mut self) -> Option<ColumnUid> {
+        let col_name = base_26(self.columns.len() as u32 + 1);
+        Some(self.insert_column(None, col_name, vec![], VariantTy::Str, None, false, true))
+    }
+
     fn column_mapping_choices(&self) -> &[String] {
         &self.column_mapping_choices
+    }
+
+    fn are_rows_skippable(&self) -> bool {
+        true
+    }
+
+    fn skip_row(&mut self, row_uid: RowUid, skipped: bool) {
+        if skipped {
+            self.skipped_rows.insert(row_uid);
+        } else {
+            self.skipped_rows.remove(&row_uid);
+        }
+    }
+
+    fn is_row_skipped(&self, row_uid: RowUid) -> bool {
+        self.skipped_rows.contains(&row_uid)
+    }
+
+    fn are_cols_skippable(&self) -> bool {
+        true
+    }
+
+    fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {
+        if let Some((b, _c)) = self.columns.get_mut(&col_uid) {
+            b.is_skipped = skipped;
+        }
+    }
+
+    fn is_col_skipped(&self, col_uid: ColumnUid) -> bool {
+        self.columns
+            .get(&col_uid)
+            .map(|(b, _c)| b.is_skipped)
+            .unwrap_or(false)
     }
 }
 
@@ -306,6 +343,16 @@ impl TableFrontend for VariantBackend {
             other => {
                 ui.label(other.to_string().as_str());
             }
+        }
+        if self.is_row_skipped(coord.row_uid) || self.is_col_skipped(coord.col_uid) {
+            let p = ui.painter();
+            let r = ui.max_rect();
+            // cross out cell
+            p.line_segment([r.min, r.max], Stroke::new(1.0, ui.visuals().text_color()));
+            p.line_segment(
+                [Pos2::new(r.min.x, r.max.y), Pos2::new(r.max.x, r.min.y)],
+                Stroke::new(1.0, ui.visuals().text_color()),
+            );
         }
     }
 

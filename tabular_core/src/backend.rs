@@ -14,6 +14,7 @@ pub struct BackendColumn {
     pub is_sortable: bool,
     pub is_required: bool,
     pub is_used: bool,
+    pub is_skipped: bool,
 }
 
 pub trait TableBackend {
@@ -109,6 +110,36 @@ pub trait TableBackend {
 
     fn column_mapping_choices(&self) -> &[String] {
         &[]
+    }
+
+    /// Return true if skipping rows is supported / required
+    fn are_rows_skippable(&self) -> bool {
+        false
+    }
+    /// Mark row as disabled, VariantView will show all cells as strike-through
+    fn skip_row(&mut self, row_uid: RowUid, skipped: bool) {
+        let _ = row_uid;
+        let _ = skipped;
+    }
+    /// Return true if disable_row(uid, true) was previously called for this row
+    fn is_row_skipped(&self, row_uid: RowUid) -> bool {
+        let _ = row_uid;
+        false
+    }
+
+    /// Return true if skipping cols is supported / required
+    fn are_cols_skippable(&self) -> bool {
+        false
+    }
+    /// Mark col as disabled, VariantView will show all cells as strike-through
+    fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {
+        let _ = col_uid;
+        let _ = skipped;
+    }
+    /// Return true if disable_col(uid, true) was previously called for this col
+    fn is_col_skipped(&self, col_uid: ColumnUid) -> bool {
+        let _ = col_uid;
+        false
     }
 }
 
