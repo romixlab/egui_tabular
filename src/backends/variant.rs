@@ -293,6 +293,10 @@ impl TableBackend for VariantBackend {
         }
     }
 
+    fn un_skip_all_rows(&mut self) {
+        self.skipped_rows.clear();
+    }
+
     fn is_row_skipped(&self, row_uid: RowUid) -> bool {
         self.skipped_rows.contains(&row_uid)
     }
@@ -304,6 +308,12 @@ impl TableBackend for VariantBackend {
     fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {
         if let Some((b, _c)) = self.columns.get_mut(&col_uid) {
             b.is_skipped = skipped;
+        }
+    }
+
+    fn un_skip_all_columns(&mut self) {
+        for (b, _c) in self.columns.values_mut() {
+            b.is_skipped = false;
         }
     }
 
@@ -320,6 +330,12 @@ impl TableFrontend for VariantBackend {
         let Some(value) = self.cell_data.get(&coord) else {
             return;
         };
+        let is_skipped = self.is_row_skipped(coord.row_uid) || self.is_col_skipped(coord.col_uid);
+        let color = if is_skipped {
+            ui.visuals().weak_text_color()
+        } else {
+            ui.visuals().text_color()
+        };
         match value {
             Variant::Empty => {}
             Variant::Bool(v) => {
@@ -327,13 +343,13 @@ impl TableFrontend for VariantBackend {
                 ui.checkbox(&mut v, "");
             }
             Variant::Str(v) => {
-                ui.label(v);
+                ui.colored_label(color, v);
             }
             Variant::StrList(list) => {
                 for (idx, v) in list.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.monospace(format!("{idx}:"));
-                        ui.label(v);
+                        ui.colored_label(color, v);
                     });
                 }
             }
@@ -341,17 +357,17 @@ impl TableFrontend for VariantBackend {
             //
             // }
             other => {
-                ui.label(other.to_string().as_str());
+                ui.colored_label(color, other.to_string().as_str());
             }
         }
-        if self.is_row_skipped(coord.row_uid) || self.is_col_skipped(coord.col_uid) {
+        if is_skipped {
             let p = ui.painter();
             let r = ui.max_rect();
             // cross out cell
-            p.line_segment([r.min, r.max], Stroke::new(1.0, ui.visuals().text_color()));
+            p.line_segment([r.min, r.max], Stroke::new(1.0, color));
             p.line_segment(
                 [Pos2::new(r.min.x, r.max.y), Pos2::new(r.max.x, r.min.y)],
-                Stroke::new(1.0, ui.visuals().text_color()),
+                Stroke::new(1.0, color),
             );
         }
     }

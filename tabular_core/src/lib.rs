@@ -25,6 +25,15 @@ impl From<(RowUid, ColumnUid)> for CellCoord {
     }
 }
 
+impl From<(RowUid, &ColumnUid)> for CellCoord {
+    fn from(value: (RowUid, &ColumnUid)) -> Self {
+        CellCoord {
+            row_uid: value.0,
+            col_uid: *value.1,
+        }
+    }
+}
+
 #[derive(
     strum::EnumIter, strum::Display, PartialEq, Copy, Clone, Default, Serialize, Deserialize,
 )]

@@ -66,12 +66,15 @@ pub trait TableBackend {
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
 
     /// Get value as Variant, not necessary to implement, but useful if using TableBackend without UI.
-    fn get(&self, _coord: CellCoord) -> Option<&Variant> {
+    fn get(&self, coord: CellCoord) -> Option<&Variant> {
+        let _ = coord;
         None
     }
 
     /// Set value as Variant, not necessary to implement, but useful if using TableBackend without UI.
-    fn set(&mut self, _coord: CellCoord, _variant: Variant) {}
+    fn set(&mut self, coord: CellCoord, variant: Variant) {
+        let (_, _) = (coord, variant);
+    }
 
     fn commit_cell_edit(&mut self, coord: CellCoord);
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
@@ -84,8 +87,9 @@ pub trait TableBackend {
     // If commit is tried anyway, it will be rejected.
     fn create_row(
         &mut self,
-        _values: impl IntoIterator<Item = (ColumnUid, Variant)>,
+        values: impl IntoIterator<Item = (ColumnUid, Variant)>,
     ) -> Option<RowUid> {
+        let _ = values;
         None
     }
     // fn remove_rows(&mut self, row_ids: Vec<u32>);
@@ -118,9 +122,9 @@ pub trait TableBackend {
     }
     /// Mark row as disabled, VariantView will show all cells as strike-through
     fn skip_row(&mut self, row_uid: RowUid, skipped: bool) {
-        let _ = row_uid;
-        let _ = skipped;
+        let (_, _) = (row_uid, skipped);
     }
+    fn un_skip_all_rows(&mut self) {}
     /// Return true if disable_row(uid, true) was previously called for this row
     fn is_row_skipped(&self, row_uid: RowUid) -> bool {
         let _ = row_uid;
@@ -133,9 +137,9 @@ pub trait TableBackend {
     }
     /// Mark col as disabled, VariantView will show all cells as strike-through
     fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {
-        let _ = col_uid;
-        let _ = skipped;
+        let (_, _) = (col_uid, skipped);
     }
+    fn un_skip_all_columns(&mut self) {}
     /// Return true if disable_col(uid, true) was previously called for this col
     fn is_col_skipped(&self, col_uid: ColumnUid) -> bool {
         let _ = col_uid;
