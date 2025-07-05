@@ -1,6 +1,7 @@
 use super::required_column::RequiredColumns;
 use crate::backends::variant::VariantBackend;
-use crate::util::base_26;
+use crate::util::{base_26, detect_encoding};
+use encoding_rs_io::DecodeReaderBytesBuilder;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
@@ -62,6 +63,7 @@ impl CsvImporter {
         max_lines: Option<usize>,
     ) {
         trace!("CsvImporter: loading");
+        rdr.seek(SeekFrom::Start(0)).unwrap();
 
         backend.remove_all_columns();
         let separator = match self.determine_separator(config, rdr) {
@@ -72,14 +74,18 @@ impl CsvImporter {
             }
         };
         config.separator_u8 = separator;
-        rdr.seek(SeekFrom::Start(0)).unwrap();
+        let encoding = detect_encoding(rdr, Some(8 * 1024 * 1024)).ok();
+        trace!("encoding: {:?}, separator: 0x{:02x?}", encoding, separator);
+        let rdr = DecodeReaderBytesBuilder::new()
+            .encoding(encoding)
+            .build(rdr);
 
         let mut rdr = csv::ReaderBuilder::new()
             .delimiter(separator)
             .has_headers(false) // to be able to ignore first N rows
             .flexible(true)
             .from_reader(rdr);
-        // .from_path(path.clone())
+
         let mut records = rdr.records();
         for _ in 0..config.skip_first_rows {
             records.next();

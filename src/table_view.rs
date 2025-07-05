@@ -294,6 +294,7 @@ impl TableView {
                 let mut skipped = data.is_col_skipped(col_uid);
                 if ui.checkbox(&mut skipped, "Skip").changed() {
                     data.skip_col(col_uid, skipped);
+                    ui.close_menu();
                 }
             }
         });
