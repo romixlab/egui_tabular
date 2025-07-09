@@ -4,13 +4,13 @@ use egui::{Color32, ComboBox, DragValue, Id, Pos2, Response, Stroke, TextEdit, U
 use rvariant::{Variant, VariantTy};
 use std::collections::{HashMap, HashSet};
 use tabular_core::backend::{
-    BackendColumn, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
+    BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
 };
 use tabular_core::{CellCoord, ColumnUid, RowUid};
 
 pub struct VariantBackend {
     cell_data: HashMap<CellCoord, Variant>,
-    cell_metadata: HashMap<CellCoord, CellMetadata>,
+    cell_metadata: HashMap<CellCoord, VariantCellMetadata>,
     row_order: Vec<RowUid>,
     skipped_rows: HashSet<RowUid>,
     next_row_uid: RowUid,
@@ -29,10 +29,9 @@ struct VariantColumn {
 }
 
 #[derive(Default)]
-struct CellMetadata {
-    color: Option<Color32>,
+struct VariantCellMetadata {
     conversion_fail_message: Option<String>,
-    tooltip: Option<String>,
+    common: CellMetadata,
 }
 
 impl VariantBackend {
@@ -336,6 +335,11 @@ impl TableBackend for VariantBackend {
             .map(|(b, _c)| b.is_skipped)
             .unwrap_or(false)
     }
+
+    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata) {
+        let m = self.cell_metadata.entry(coord).or_default();
+        m.common = meta;
+    }
 }
 
 impl TableFrontend for VariantBackend {
@@ -499,8 +503,10 @@ impl TableFrontend for VariantBackend {
             .map(|meta| {
                 if meta.conversion_fail_message.is_some() {
                     Some(Color32::ORANGE)
+                } else if let Some(color) = &meta.common.color {
+                    Some(Color32::from_rgb(color.r, color.g, color.b))
                 } else {
-                    meta.color
+                    None
                 }
             })
             .flatten()
@@ -512,7 +518,7 @@ impl TableFrontend for VariantBackend {
             .map(|meta| {
                 if let Some(msg) = &meta.conversion_fail_message {
                     Some(msg.as_str())
-                } else if let Some(tooltip) = &meta.tooltip {
+                } else if let Some(tooltip) = &meta.common.tooltip {
                     Some(tooltip.as_str())
                 } else {
                     None

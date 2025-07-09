@@ -1,6 +1,7 @@
 use crate::{CellCoord, ColumnUid, RowUid};
 use rvariant::Variant;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
@@ -147,6 +148,11 @@ pub trait TableBackend {
         let _ = col_uid;
         false
     }
+
+    /// Set cell color or tooltip
+    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata) {
+        let (_, _) = (coord, meta);
+    }
 }
 
 #[derive(Default)]
@@ -193,4 +199,16 @@ pub struct OneShotFlags {
     pub cleared: bool,
     /// Set when different mapping is selected for a column
     pub column_mapping_changed: Option<ColumnUid>,
+}
+
+#[derive(Default)]
+pub struct CellMetadata {
+    pub color: Option<Rgb>,
+    pub tooltip: Option<Arc<String>>,
+}
+
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
