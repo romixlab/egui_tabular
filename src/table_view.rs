@@ -425,28 +425,36 @@ impl TableView {
                 let coord = CellCoord { row_uid, col_uid };
                 let (rect, resp) = row.col(|ui| {
                     let ui_max_rect = ui.max_rect();
+                    const EXPAND_X: f32 = 2.0;
 
-                    if let Some(backend_color) = table.cell_color(coord) {
-                        ui.painter().rect_filled(
-                            ui_max_rect.expand(0.),
-                            CornerRadius::ZERO,
-                            backend_color.gamma_multiply(0.2),
-                        );
+                    let color = if let Some(backend_color) = table.cell_color(coord) {
+                        Some(
+                            if is_current_cell_in_selection && !is_editing_cell_on_this_row {
+                                backend_color.gamma_multiply(0.4)
+                            } else {
+                                backend_color.gamma_multiply(0.2)
+                            },
+                        )
                     } else if is_current_cell_in_selection && !is_editing_cell_on_this_row {
                         // Light orange background inside selection
-                        ui.painter().rect_filled(
-                            ui_max_rect.expand(0.),
-                            CornerRadius::ZERO,
-                            visual.warn_fg_color.gamma_multiply(0.2),
-                        );
+                        Some(visual.warn_fg_color.gamma_multiply(0.2))
+                    } else {
+                        None
                     };
+                    if let Some(color) = color {
+                        ui.painter().rect_filled(
+                            ui_max_rect.expand2([EXPAND_X, 0.0].into()),
+                            CornerRadius::ZERO,
+                            color,
+                        );
+                    }
 
                     // Lines on the first and last row of selection
                     let st = Stroke {
                         width: 1.,
                         color: visual.warn_fg_color.gamma_multiply(0.5),
                     };
-                    let xr = ui_max_rect.x_range();
+                    let xr = ui_max_rect.x_range().expand(EXPAND_X);
                     let yr = ui_max_rect.y_range();
                     if is_first_row_in_selection {
                         ui.painter().hline(xr, yr.min, st);
@@ -454,6 +462,11 @@ impl TableView {
                     if is_last_row_in_selection {
                         ui.painter().hline(xr, yr.max, st);
                     }
+                    // Vertical lines
+                    // if is_current_cell_in_selection && !is_editing_cell_on_this_row {
+                    //     ui.painter().vline(xr.min, yr, st);
+                    //     ui.painter().vline(xr.max, yr, st);
+                    // }
 
                     ui.style_mut()
                         .visuals
