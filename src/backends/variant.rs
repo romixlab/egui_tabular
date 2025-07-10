@@ -110,6 +110,7 @@ impl VariantBackend {
         self.columns.clear();
         self.clear();
         self.one_shot_flags.columns_reset = true;
+        self.one_shot_flags.reloaded = true;
     }
 
     pub fn insert_column(
@@ -303,10 +304,12 @@ impl TableBackend for VariantBackend {
         } else {
             self.skipped_rows.remove(&row_uid);
         }
+        self.one_shot_flags.row_skip_set_changed = true;
     }
 
     fn un_skip_all_rows(&mut self) {
         self.skipped_rows.clear();
+        self.one_shot_flags.row_skip_set_changed = true;
     }
 
     fn is_row_skipped(&self, row_uid: RowUid) -> bool {
@@ -321,12 +324,14 @@ impl TableBackend for VariantBackend {
         if let Some((b, _c)) = self.columns.get_mut(&col_uid) {
             b.is_skipped = skipped;
         }
+        self.one_shot_flags.col_skip_set_changed = true;
     }
 
     fn un_skip_all_columns(&mut self) {
         for (b, _c) in self.columns.values_mut() {
             b.is_skipped = false;
         }
+        self.one_shot_flags.col_skip_set_changed = true;
     }
 
     fn is_col_skipped(&self, col_uid: ColumnUid) -> bool {

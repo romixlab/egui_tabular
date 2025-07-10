@@ -179,7 +179,7 @@ pub struct PersistentFlags {
 }
 
 /// One shot flags: all flags are reset to false after poll() call
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct OneShotFlags {
     /// Set once data backend is created
     pub first_pass: bool,
@@ -199,6 +199,25 @@ pub struct OneShotFlags {
     pub cleared: bool,
     /// Set when different mapping is selected for a column
     pub column_mapping_changed: Option<ColumnUid>,
+    /// Set when one or more rows where skipped or unskipped
+    pub row_skip_set_changed: bool,
+    /// Set when one or more cols where skipped or unskipped
+    pub col_skip_set_changed: bool,
+}
+
+impl OneShotFlags {
+    /// Returns true if any of the one shot flags is set to true, except first_pass.
+    pub fn any_changed(&self) -> bool {
+        self.reloaded
+            || self.columns_reset
+            || self.columns_changed
+            || self.row_set_updated
+            || self.visible_row_vec_updated
+            || self.cleared
+            || self.column_mapping_changed.is_some()
+            || self.row_skip_set_changed
+            || self.col_skip_set_changed
+    }
 }
 
 #[derive(Default)]
