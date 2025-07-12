@@ -68,13 +68,25 @@ pub trait TableBackend {
     fn rows(&self) -> impl Iterator<Item = RowUid>;
     fn un_skipped_rows(&self) -> impl Iterator<Item = RowUid>;
 
-    /// Get value as Variant, not necessary to implement, but useful if using TableBackend without UI.
+    /// Get value as Variant, not necessary to implement, but could be useful.
     fn get(&self, coord: CellCoord) -> Option<&Variant> {
         let _ = coord;
         None
     }
 
-    /// Set value as Variant, not necessary to implement, but useful if using TableBackend without UI.
+    /// Get value as Variant and try to convert to &str, not necessary to implement, but could be useful.
+    fn get_as_str(&self, coord: CellCoord) -> Option<&str> {
+        let value = self.get(coord)?;
+        value.as_str().ok()
+    }
+
+    /// Get value as Variant and try to convert to &str, not necessary to implement, but could be useful.
+    fn get_as_string(&self, coord: CellCoord) -> Option<String> {
+        let value = self.get(coord)?;
+        value.as_string().ok()
+    }
+
+    /// Set value as Variant, not necessary to implement, but could be useful.
     fn set(&mut self, coord: CellCoord, variant: Variant) {
         let (_, _) = (coord, variant);
     }
