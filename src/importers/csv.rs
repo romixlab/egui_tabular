@@ -159,7 +159,7 @@ impl CsvImporter {
 
     fn convert_cell_value(&self, col_uid: ColumnUid, value: &str) -> Variant {
         if let Some(r) = self.required_columns.get(col_uid) {
-            Variant::from_str(value, r.ty)
+            Variant::from_str(value, &r.ty)
         } else {
             Variant::Str(value.to_string())
         }
@@ -216,7 +216,7 @@ impl CsvImporter {
                 Some(col_uid),
                 col.name.clone(),
                 col.synonyms.clone(),
-                col.ty,
+                col.ty.clone(),
                 col.default.clone(),
                 true,
                 true,

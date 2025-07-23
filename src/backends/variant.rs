@@ -1,7 +1,7 @@
 use crate::frontend::TableFrontend;
 use crate::util::base_26;
 use egui::{Color32, ComboBox, DragValue, Id, Pos2, Response, Stroke, TextEdit, Ui, Widget};
-use rvariant::{Variant, VariantTy};
+use rvariant::{Number, Variant, VariantTy};
 use std::collections::{HashMap, HashSet};
 use tabular_core::backend::{
     BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
@@ -35,7 +35,9 @@ struct VariantCellMetadata {
 }
 
 impl VariantBackend {
-    pub fn new(columns: impl IntoIterator<Item = (String, VariantTy, Option<Variant>)>) -> Self {
+    pub fn new<'i>(
+        columns: impl IntoIterator<Item = (&'i str, VariantTy, Option<Variant>)>,
+    ) -> Self {
         VariantBackend {
             cell_data: Default::default(),
             cell_metadata: Default::default(),
@@ -48,7 +50,7 @@ impl VariantBackend {
                 .map(|(idx, (name, ty, default))| {
                     let col_uid = ColumnUid(idx as u32);
                     let backend_column = BackendColumn {
-                        name,
+                        name: name.into(),
                         synonyms: vec![],
                         ty: format!("{ty}"),
                         is_sortable: true,
@@ -165,7 +167,7 @@ impl VariantBackend {
     }
 
     pub fn column_ty(&self, col_uid: ColumnUid) -> Option<VariantTy> {
-        self.columns.get(&col_uid).map(|(_b, c)| c.ty)
+        self.columns.get(&col_uid).map(|(_b, c)| c.ty.clone())
     }
 
     pub fn turn_column_into(&mut self, col_uid: ColumnUid, ty: VariantTy) {
@@ -175,13 +177,13 @@ impl VariantBackend {
         if c.ty == ty {
             return;
         }
-        c.ty = ty;
         b.ty = format!("{ty}");
+        c.ty = ty.clone();
         for row in &self.row_order {
             let coord = (*row, col_uid).into();
             if let Some(value) = self.cell_data.get_mut(&coord) {
                 let meta = self.cell_metadata.entry(coord).or_default();
-                match value.clone().convert_to(ty) {
+                match value.clone().convert_to(&ty) {
                     Ok(value_converted) => {
                         *value = value_converted;
                         meta.conversion_fail_message = None;
@@ -222,7 +224,7 @@ impl TableBackend for VariantBackend {
     }
 
     fn one_shot_flags_archive(&mut self) {
-        self.one_shot_flags_delay = self.one_shot_flags;
+        self.one_shot_flags_delay = self.one_shot_flags.clone();
     }
 
     fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags {
@@ -400,7 +402,7 @@ impl TableFrontend for VariantBackend {
         let cell_ty = self
             .columns
             .get(&coord.col_uid)
-            .map(|(_, c)| c.ty)
+            .map(|(_, c)| c.ty.clone())
             .unwrap_or(VariantTy::Str);
 
         let mut is_first_pass = false;
@@ -412,30 +414,29 @@ impl TableFrontend for VariantBackend {
                 self.cell_data
                     .get(&coord)
                     .cloned()
-                    .unwrap_or(Variant::default_of(cell_ty))
+                    .unwrap_or(Variant::default_of(&cell_ty))
             }
         } else {
             is_first_pass = true;
             self.cell_data
                 .get(&coord)
                 .cloned()
-                .unwrap_or(Variant::default_of(cell_ty))
+                .unwrap_or(Variant::default_of(&cell_ty))
         };
         let resp = match &mut value {
             Variant::Bool(v) => Some(ui.checkbox(v, "")),
             Variant::Enum {
-                enum_uid,
-                discriminant: discriminant_edit,
+                name,
+                selected,
+                variants,
             } => {
-                let resp = ComboBox::from_id_salt(id.with("_egui_tabular_enum_edit"))
-                    .selected_text(
-                        rvariant::uid_to_variant_name(*enum_uid, *discriminant_edit).expect(""),
-                    )
+                let resp = ComboBox::from_id_salt(id.with("_egui_tabular_enum_edit").with(name))
+                    .selected_text(selected.as_str())
                     // .width(ui_column.width)
                     .show_ui(ui, |ui| {
                         let mut changed = false;
-                        for (d, v) in rvariant::variant_names(*enum_uid).expect("") {
-                            changed |= ui.selectable_value(discriminant_edit, *d, v).changed();
+                        for v in variants.iter() {
+                            changed |= ui.selectable_value(selected, v.clone(), v).changed();
                         }
                         changed
                     })
@@ -456,40 +457,23 @@ impl TableFrontend for VariantBackend {
                 //     None
                 // }
             }
-            Variant::U32(num) => {
-                let resp = ui
-                    .horizontal(|ui| {
-                        ui.label("u32:");
-                        if ui
-                            .add(DragValue::new(num).speed(INT_DRAG_SPEED))
-                            .lost_focus()
-                        {
-                            Some(Variant::U32(*num))
-                        } else {
-                            None
-                        }
-                    })
-                    .response;
-                Some(resp)
+            Variant::Number(Number::U32(num)) => {
+                Some(ui.add(DragValue::new(num).speed(INT_DRAG_SPEED)))
             }
-            Variant::U64(num) => {
-                let resp = ui
-                    .horizontal(|ui| {
-                        ui.label("u64:");
-                        if ui
-                            .add(DragValue::new(num).speed(INT_DRAG_SPEED))
-                            .lost_focus()
-                        {
-                            Some(Variant::U64(*num))
-                        } else {
-                            None
-                        }
-                    })
-                    .response;
-                Some(resp)
+            Variant::Number(Number::U64(num)) => {
+                Some(ui.add(DragValue::new(num).speed(INT_DRAG_SPEED)))
+            }
+            Variant::Number(Number::I32(num)) => {
+                Some(ui.add(DragValue::new(num).speed(INT_DRAG_SPEED)))
+            }
+            Variant::Number(Number::I64(num)) => {
+                Some(ui.add(DragValue::new(num).speed(INT_DRAG_SPEED)))
             }
             v => {
-                ui.label(format!("Editor is not implemented for {v}"));
+                ui.label(format!(
+                    "Editor is not implemented for {}",
+                    VariantTy::from(&*v)
+                ));
                 None
             }
         };

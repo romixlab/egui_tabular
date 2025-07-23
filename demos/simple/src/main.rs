@@ -1,5 +1,5 @@
 use egui_tabular::backends::variant::VariantBackend;
-use egui_tabular::rvariant::{Variant, VariantTy};
+use egui_tabular::rvariant::{Number, NumberTy, Variant, VariantTy};
 use egui_tabular::table_view::TableViewConfig;
 use egui_tabular::TableView;
 use tabular_core::ColumnUid;
@@ -18,14 +18,21 @@ impl Default for SimpleApp {
                 VariantTy::Str,
                 Some(Variant::Str("Default name".into())),
             ),
-            ("Count".into(), VariantTy::U32, Some(Variant::U32(0))),
+            (
+                "Count".into(),
+                VariantTy::Number(NumberTy::U32),
+                Some(Variant::Number(Number::U32(0))),
+            ),
         ]);
         let mut rng = fastrand::Rng::new();
         let mut name_gen = names::Generator::with_naming(names::Name::Numbered);
         for _ in 0..10_000 {
             backend.insert_row([
                 (ColumnUid(0), Variant::Str(name_gen.next().unwrap())),
-                (ColumnUid(1), Variant::U32(rng.u32(0..=1000))),
+                (
+                    ColumnUid(1),
+                    Variant::Number(Number::U32(rng.u32(0..=1000))),
+                ),
             ]);
         }
         Self {

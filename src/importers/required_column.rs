@@ -1,4 +1,4 @@
-use rvariant::{Variant, VariantTy};
+use rvariant::{NumberTy, Variant, VariantTy};
 use tabular_core::ColumnUid;
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl RequiredColumn {
         RequiredColumn {
             name: name.as_ref().to_string(),
             synonyms: vec![],
-            ty: VariantTy::U32,
+            ty: VariantTy::Number(NumberTy::U32),
             default: None,
         }
     }

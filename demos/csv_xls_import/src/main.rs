@@ -11,7 +11,7 @@ impl Default for SimpleApp {
     fn default() -> Self {
         let required_columns = RequiredColumns::new([
             RequiredColumn::new("key", VariantTy::Str).synonyms(["parameter", "parameter_name"]),
-            RequiredColumn::new("value", VariantTy::U32),
+            RequiredColumn::new("value", VariantTy::u32()),
         ]);
         let importer = TabularImporter::new(required_columns);
         // importer.set_max_lines(1000);

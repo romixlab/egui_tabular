@@ -44,7 +44,7 @@ impl TabularImporter {
                 Some(*uid),
                 r.name.clone(),
                 r.synonyms.clone(),
-                r.ty,
+                r.ty.clone(),
                 r.default.clone(),
                 true,
                 true,

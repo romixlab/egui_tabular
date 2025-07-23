@@ -191,7 +191,7 @@ pub struct PersistentFlags {
 }
 
 /// One shot flags: all flags are reset to false after poll() call
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct OneShotFlags {
     /// Set once data backend is created
     pub first_pass: bool,
@@ -215,6 +215,7 @@ pub struct OneShotFlags {
     pub row_skip_set_changed: bool,
     /// Set when one or more cols where skipped or unskipped
     pub col_skip_set_changed: bool,
+    pub rows_selected: Option<Vec<RowUid>>,
 }
 
 impl OneShotFlags {

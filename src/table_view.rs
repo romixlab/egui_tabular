@@ -36,6 +36,7 @@ impl TableView {
         id: Id,
     ) -> Response {
         let mut is_no_columns = self.state.columns_ordered.is_empty();
+        let prev_selected_range = self.state.selected_range;
         if ui.rect_contains_pointer(ui.max_rect()) {
             self.handle_paste(is_no_columns, table, ui);
         }
@@ -230,6 +231,21 @@ impl TableView {
             );
         }
         self.check_row_set_updated(table, config); // if modified rows during this render cycle
+
+        if self.state.selected_range != prev_selected_range {
+            let rows_selected = if let Some(r) = self.state.selected_range {
+                let mut rows_selected = vec![];
+                for row_idx in r.row_start()..=r.row_end() {
+                    if let Some(row_uid) = table.row_uid(VisualRowIdx(row_idx)) {
+                        rows_selected.push(row_uid);
+                    }
+                }
+                rows_selected
+            } else {
+                vec![]
+            };
+            table.one_shot_flags_mut().rows_selected = Some(rows_selected);
+        }
 
         table.one_shot_flags_archive();
         *table.one_shot_flags_mut() = OneShotFlags::default();
