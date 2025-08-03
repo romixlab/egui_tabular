@@ -1,10 +1,12 @@
 use crate::frontend::TableFrontend;
 use crate::util::base_26;
 use egui::{Color32, ComboBox, DragValue, Id, Pos2, Response, Stroke, TextEdit, Ui, Widget};
+use indexmap::IndexMap;
 use rvariant::{Number, Variant, VariantTy};
 use std::collections::{HashMap, HashSet};
 use tabular_core::backend::{
-    BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, TableBackend, VisualRowIdx,
+    BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, TableBackend, VisualColIdx,
+    VisualRowIdx,
 };
 use tabular_core::{CellCoord, ColumnUid, RowUid};
 
@@ -14,7 +16,7 @@ pub struct VariantBackend {
     row_order: Vec<RowUid>,
     skipped_rows: HashSet<RowUid>,
     next_row_uid: RowUid,
-    columns: HashMap<ColumnUid, (BackendColumn, VariantColumn)>,
+    columns: IndexMap<ColumnUid, (BackendColumn, VariantColumn)>,
     cell_edit: Option<(CellCoord, Variant)>,
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
@@ -241,6 +243,10 @@ impl TableBackend for VariantBackend {
 
     fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn> {
         self.columns.get(&col_uid).map(|(b, _)| b)
+    }
+
+    fn col_uid(&self, col_idx: VisualColIdx) -> Option<ColumnUid> {
+        self.columns.keys().skip(col_idx.0).next().copied()
     }
 
     fn row_count(&self) -> usize {

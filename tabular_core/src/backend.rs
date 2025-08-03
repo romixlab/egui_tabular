@@ -6,6 +6,9 @@ use std::sync::Arc;
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
 
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+pub struct VisualColIdx(pub usize);
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 // #[cfg_attr(feature = "persistency", derive(serde::Serialize, serde::Deserialize))]
 pub struct BackendColumn {
@@ -53,6 +56,7 @@ pub trait TableBackend {
     /// Returns actually used columns, unused data is e.g. not sent over the network.
     fn used_columns(&self) -> impl Iterator<Item = ColumnUid>;
     fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn>;
+    fn col_uid(&self, col_idx: VisualColIdx) -> Option<ColumnUid>;
 
     /// Choose whether to use a certain column or not.
     fn use_column(&mut self, col_uid: ColumnUid, is_used: bool) {
