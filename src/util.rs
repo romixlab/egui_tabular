@@ -36,6 +36,6 @@ pub fn detect_encoding<R: Read + Seek>(
         }
     }
 
-    let encoding = detector.guess(None, false);
+    let encoding = detector.guess(None, true);
     Ok(encoding)
 }

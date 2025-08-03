@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tabular_core::backend::BackendColumn;
-use tabular_core::ColumnUid;
+use tabular_core::{CellCoord, ColumnUid};
 
 pub(super) struct State {
     pub(super) row_heights: Vec<f32>,
@@ -36,13 +36,13 @@ impl Default for State {
 }
 
 /// All indices are from 0 to row or column count currently in view
-#[derive(Copy, Clone, Eq, Debug)]
+#[derive(Copy, Clone, Eq)]
 pub(crate) struct SelectedRange {
     row_start: usize,
     row_end: usize,
     col_start: usize,
     col_end: usize,
-    is_editing: bool,
+    editing: Option<CellCoord>,
 }
 
 impl PartialEq for SelectedRange {
@@ -61,7 +61,7 @@ impl SelectedRange {
             row_end: row_idx,
             col_start: col_idx,
             col_end: col_idx,
-            is_editing: false,
+            editing: None,
         }
     }
 
@@ -71,7 +71,7 @@ impl SelectedRange {
             row_end: row_idx,
             col_start: 0,
             col_end: col_count,
-            is_editing: false,
+            editing: None,
         }
     }
 
@@ -81,7 +81,7 @@ impl SelectedRange {
             row_end: height.saturating_sub(1),
             col_start: 0,
             col_end: width.saturating_sub(1),
-            is_editing: false,
+            editing: None,
         }
     }
 
@@ -102,12 +102,16 @@ impl SelectedRange {
     }
 
     pub fn is_editing(&self) -> bool {
-        self.is_editing
+        self.editing.is_some()
     }
 
-    pub fn set_editing(&mut self, is_editing: bool) {
-        if is_editing {
-            self.is_editing = self.is_single_cell();
+    pub fn editing(&self) -> Option<CellCoord> {
+        self.editing
+    }
+
+    pub fn set_editing(&mut self, editing: Option<CellCoord>) {
+        if self.is_single_cell() {
+            self.editing = editing;
         }
     }
 
@@ -143,7 +147,7 @@ impl SelectedRange {
             self.col_start = col_idx;
         }
         if !self.is_single_cell() {
-            self.is_editing = false;
+            self.editing = None;
         }
     }
 
@@ -178,6 +182,7 @@ impl SelectedRange {
             if !expand {
                 self.col_end = self.col_end - 1;
             }
+            self.set_editing(None);
         }
     }
 
@@ -187,6 +192,7 @@ impl SelectedRange {
             if !expand {
                 self.col_start += 1;
             }
+            self.set_editing(None);
         }
     }
 
@@ -196,6 +202,7 @@ impl SelectedRange {
             if !expand {
                 self.row_end = self.row_end - 1;
             }
+            self.set_editing(None);
         }
     }
 
@@ -205,6 +212,7 @@ impl SelectedRange {
             if !expand {
                 self.row_start = self.row_start + 1;
             }
+            self.set_editing(None);
         }
     }
 

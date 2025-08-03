@@ -75,7 +75,10 @@ impl TableView {
             .show(ui, |ui| {
                 let mut builder = egui_extras::TableBuilder::new(ui);
                 builder = if show_tool_column {
-                    builder.column(Column::auto().clip(!config.use_heterogeneous_row_heights))
+                    builder.column(
+                        Column::auto_with_initial_suggestion(48.0)
+                            .clip(!config.use_heterogeneous_row_heights),
+                    )
                 } else {
                     builder
                 };
@@ -97,10 +100,10 @@ impl TableView {
                     // );
                 }
                 builder
-                    .drag_to_scroll(false) // Drag is used for selection
+                    // .drag_to_scroll(false) // Drag is used for selection
                     .striped(true)
                     .resizable(true)
-                    .sense(Sense::click_and_drag())
+                    .sense(Sense::click())
                     .header(20., |mut h| {
                         if show_tool_column {
                             h.col(|_ui| {});
@@ -494,10 +497,12 @@ impl TableView {
                     if is_editing_current_cell {
                         let _resp = table.show_cell_editor(coord, ui, id);
                         if ui.input(|i| i.key_pressed(Key::Enter)) {
-                            commit_edit = Some(coord)
+                            commit_edit = Some(coord);
                         }
                         if ui.input(|i| i.key_pressed(Key::Escape)) {
-                            s.selected_range = None;
+                            if let Some(r) = &mut s.selected_range {
+                                r.set_editing(None);
+                            }
                         }
                     } else {
                         ui.add_enabled_ui(false, |ui| {
@@ -513,8 +518,11 @@ impl TableView {
                             r.stretch_to(row_idx, col_idx);
                         } else {
                             if *r == current_cell {
-                                r.set_editing(true);
+                                r.set_editing(Some(coord));
                             } else {
+                                if let Some(coord) = r.editing() {
+                                    commit_edit = Some(coord);
+                                }
                                 s.selected_range = Some(current_cell);
                             }
                         }
@@ -557,7 +565,9 @@ impl TableView {
 
         if let Some(coord) = commit_edit {
             table.commit_cell_edit(coord);
-            s.selected_range = None;
+            if let Some(r) = &mut s.selected_range {
+                r.set_editing(None);
+            }
         }
 
         resp_total

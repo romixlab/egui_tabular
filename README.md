@@ -24,13 +24,14 @@ TODO: Add web demo.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.
 * [x] Keyboard shortcuts and navigation.
 * [x] Copy-paste support for cells and blocks of cells.
-* [x] Ability to add lints and icons to cells or change their background color.
-* [x] Support for cells with various heights.
+* [x] Ability to add lints to cells and change their background color.
+    * [ ] Add icons
+* [x] Support for cells with varying heights.
 * [x] Drag&drop column reordering.
 * [ ] Export to CSV and XLS.
 * [ ] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
-* [ ] Disable/enable rows and columns (show hatch pattern when disabled).
+* [x] Disable/enable rows and columns (show a hatch pattern when disabled).
 * [x] Change a column type and try to turn data into requested type (VariantBackend, only from code now).
 
 ## Non-goals
@@ -39,12 +40,11 @@ TODO: Add web demo.
 
 ## Potential features
 
-* Gate egui behind gui feature, disable it to work with data types and formats only.
 * Derive macro to map Rust structs into rows of typed cells.
 
 ## Project status
 
-Experimental - many of the essential features are implemented, but documentation is incomplete and examples are absent.
+Experimental — many of the essential features are implemented, but documentation is incomplete and examples are absent.
 
 ## Alternatives
 

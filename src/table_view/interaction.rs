@@ -6,7 +6,7 @@ use egui::{Event, Id, Key, Modal, Ui};
 use itertools::Itertools;
 use log::warn;
 use rvariant::Variant;
-use tabular_core::backend::{TableBackend, VisualRowIdx};
+use tabular_core::backend::{TableBackend, VisualColIdx, VisualRowIdx};
 use tabular_core::{ColumnUid, RowUid};
 
 impl TableView {
@@ -43,15 +43,22 @@ impl TableView {
             }
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
-            self.state.selected_range = Some(SelectedRange::rect(
-                self.state.columns_ordered.len(),
-                data.row_count(),
-            ));
+            let is_editing = if let Some(r) = &self.state.selected_range {
+                r.is_editing()
+            } else {
+                false
+            };
+            if !is_editing {
+                self.state.selected_range = Some(SelectedRange::rect(
+                    self.state.columns_ordered.len(),
+                    data.row_count(),
+                ));
+            }
         }
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.selected_range = None;
         }
-        self.handle_selection_moves(data.row_count(), ui);
+        self.handle_selection_moves(data.row_count(), data, ui);
     }
 
     pub(crate) fn handle_paste(
@@ -270,19 +277,27 @@ impl TableView {
         self.state.about_to_paste_rows.clear();
     }
 
-    fn handle_selection_moves(&mut self, row_count: usize, ui: &mut Ui) {
-        let (left, right, up, down, shift) = ui.input(|i| {
+    fn handle_selection_moves(
+        &mut self,
+        row_count: usize,
+        data: &mut impl TableBackend,
+        ui: &mut Ui,
+    ) {
+        let (left, right, up, down, enter, shift) = ui.input(|i| {
             (
                 i.key_pressed(Key::ArrowLeft),
                 i.key_pressed(Key::ArrowRight),
                 i.key_pressed(Key::ArrowUp),
                 i.key_pressed(Key::ArrowDown),
+                i.key_pressed(Key::E),
                 i.modifiers.shift,
             )
         });
         if left || right || up || down {
-            // let was_selected = self.state.selected_range;
             if let Some(already_selected) = &mut self.state.selected_range {
+                if let Some(coord) = already_selected.editing() {
+                    data.commit_cell_edit(coord);
+                }
                 if left {
                     already_selected.move_left(shift);
                 }
@@ -296,52 +311,19 @@ impl TableView {
                     already_selected.move_down(shift, row_count);
                 }
             }
-            // if was_selected != self.state.selected_range {
-            //     self.state.save_cell_changes_and_deselect = true;
-            //     if let Some(r) = self.state.selected_range {
-            //         self.state.last_pressed = Some((r.row_start, r.col_start));
-            //     }
-            // }
         }
-        // let Some(e) = selection_event else {
-        //     return;
-        // };
-        // debug!("{e:?}");
-        // match e {
-        //     SelectionEvent::Pressed(row, col) => {
-        //         if self.state.last_pressed == Some((row, col)) {
-        //             debug!("Ignoring");
-        //         } else {
-        //             if let Some(already_selected) = self.state.selected_range {
-        //                 if key_navigation.shift {
-        //                     debug!("Ignoring due to shift pressed");
-        //                     return;
-        //                 }
-        //                 if already_selected.is_single_cell() {
-        //                     debug!("Deselect and save if any changes");
-        //                     self.state.save_cell_changes_and_deselect = true;
-        //                 } else {
-        //                     debug!("Dropping multi cell selection");
-        //                     self.state.selected_range = None;
-        //                 }
-        //             }
-        //             self.state.last_pressed = Some((row, col));
-        //         }
-        //     }
-        //     SelectionEvent::Released(row, col) => {
-        //         let Some(prev_pressed) = self.state.last_pressed else {
-        //             return;
-        //         };
-        //         let new_selected_range =
-        //             SelectedRange::ordered(prev_pressed.0, prev_pressed.1, row, col);
-        //         if self.state.selected_range != Some(new_selected_range) {
-        //             debug!("setting new selection range: {:?}", new_selected_range);
-        //             self.state.selected_range = Some(new_selected_range);
-        //         } else {
-        //             debug!("ignoring same selection");
-        //         }
-        //     }
-        // }
+        if enter {
+            if let Some(selected) = &mut self.state.selected_range {
+                if selected.is_single_cell() {
+                    let row_uid = data.row_uid(VisualRowIdx(selected.row_start()));
+                    let col_uid = data.col_uid(VisualColIdx(selected.col_start()));
+                    if let (Some(row_uid), Some(col_uid)) = (row_uid, col_uid) {
+                        selected.set_editing(Some((row_uid, col_uid).into()));
+                    }
+                }
+                // selected.set_editing()
+            }
+        }
     }
 
     // pub(crate) fn handle_clear_request(&mut self, data: &mut impl TableBackend, modal: &mut Modal) {
