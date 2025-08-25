@@ -209,8 +209,9 @@ impl TableBackend for VariantBackend {
         self.cell_data.clear();
         self.cell_metadata.clear();
         self.row_order.clear();
-        self.one_shot_flags.row_set_updated = true;
+        self.skipped_rows.clear();
         self.next_row_uid = RowUid(0);
+        self.one_shot_flags.row_set_updated = true;
         self.cell_edit = None;
     }
 
