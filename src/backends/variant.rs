@@ -211,6 +211,7 @@ impl TableBackend for VariantBackend {
         self.row_order.clear();
         self.one_shot_flags.row_set_updated = true;
         self.next_row_uid = RowUid(0);
+        self.cell_edit = None;
     }
 
     fn persistent_flags(&self) -> &PersistentFlags {
