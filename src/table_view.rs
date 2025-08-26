@@ -6,10 +6,7 @@ mod tool_column;
 use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
-use egui::{
-    CornerRadius, CursorIcon, Id, Key, Label, PointerButton, Response, RichText, ScrollArea, Sense,
-    Stroke, TextWrapMode, Ui,
-};
+use egui::{CornerRadius, CursorIcon, Id, Key, Label, Painter, PointerButton, Response, RichText, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2};
 use egui_extras::{Column, TableBody};
 use std::collections::HashMap;
 use tabular_core::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
@@ -76,7 +73,7 @@ impl TableView {
                 let mut builder = egui_extras::TableBuilder::new(ui);
                 builder = if show_tool_column {
                     builder.column(
-                        Column::auto_with_initial_suggestion(48.0)
+                        Column::auto_with_initial_suggestion(48.0).at_least(20.0)
                             .clip(!config.use_heterogeneous_row_heights),
                     )
                 } else {
@@ -106,7 +103,19 @@ impl TableView {
                     .sense(Sense::click())
                     .header(20., |mut h| {
                         if show_tool_column {
-                            h.col(|_ui| {});
+                            let (_, r) = h.col(|ui| {
+                                Self::draw_table_icon(ui);
+                            });
+                            r.context_menu(|ui| {
+                                if ui.button("Export CSV").clicked() {
+                                    crate::util::export_csv(table);
+                                    ui.close_menu();
+                                }
+                                if ui.button("Append row").clicked() {
+                                    table.create_row([]);
+                                    ui.close_menu();
+                                }
+                            });
                         }
                         for column_uid in columns.iter().copied() {
                             let Some(backend_column) = self.state.columns.get(&column_uid) else {
@@ -255,6 +264,15 @@ impl TableView {
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
+    fn draw_table_icon(ui: &mut Ui) {
+        let rect = ui.max_rect().translate(Vec2::new(0.0, 8.0));
+        let stroke = Stroke::new(1.0, ui.visuals().text_color());
+        let p = ui.painter();
+        p.rect_stroke(rect, CornerRadius::same(3), stroke, egui::StrokeKind::Middle);
+        p.line_segment([rect.center_top(), rect.center_bottom()], stroke);
+        p.line_segment([rect.left_center(), rect.right_center()], stroke);
+    }
+
     fn check_col_set_updated(&mut self, table: &mut impl TableBackend, is_no_columns: &mut bool) {
         if table.one_shot_flags_internal().columns_reset {
             // log::trace!("Updating col info");
@@ -373,7 +391,7 @@ impl TableView {
         table: &mut T,
         config: &TableViewConfig,
         body: TableBody<'_>,
-        _painter: egui::Painter,
+        _painter: Painter,
         _commands: (),
         ctx: &egui::Context,
         style: &egui::Style,

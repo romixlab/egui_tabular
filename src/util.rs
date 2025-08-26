@@ -1,5 +1,6 @@
 use encoding_rs::Encoding;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use tabular_core::backend::TableBackend;
 
 pub fn base_26(mut num: u32) -> String {
     let mut result = String::new();
@@ -38,4 +39,33 @@ pub fn detect_encoding<R: Read + Seek>(
 
     let encoding = detector.guess(None, true);
     Ok(encoding)
+}
+
+pub fn export_csv(table: &impl TableBackend) {
+    let Some(path) = rfd::FileDialog::new().save_file() else {
+        return;
+    };
+    let Ok(mut file) = std::fs::File::create(path) else {
+        return;
+    };
+    let mut column_names = vec![];
+    for col_uid in table.used_columns() {
+        let Some(col) = table.column_info(col_uid) else {
+            continue
+        };
+        column_names.push(col.name.as_str());
+    }
+    let mut wtr = csv::Writer::from_writer(&mut file);
+    wtr.write_record(column_names).unwrap();
+    for row_uid in table.un_skipped_rows() {
+        let mut record = vec![];
+        for col_uid in table.used_columns() {
+            if let Some(cell) = table.get((row_uid, col_uid).into()) {
+                record.push(cell.to_string());
+            } else {
+                record.push(String::new());
+            }
+        }
+        wtr.write_record(&record).unwrap();
+    }
 }

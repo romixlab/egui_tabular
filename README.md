@@ -28,7 +28,7 @@ TODO: Add web demo.
     * [ ] Add icons
 * [x] Support for cells with varying heights.
 * [x] Drag&drop column reordering.
-* [ ] Export to CSV and XLS.
+* [x] Export to CSV.
 * [ ] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
 * [x] Disable/enable rows and columns (show a hatch pattern when disabled).
@@ -41,6 +41,7 @@ TODO: Add web demo.
 ## Potential features
 
 * Derive macro to map Rust structs into rows of typed cells.
+* Export to XLS / XLSX
 
 ## Project status
 
