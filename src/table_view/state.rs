@@ -224,3 +224,9 @@ impl SelectedRange {
         self.row_end - self.row_start + 1
     }
 }
+
+impl State {
+    pub fn is_editing(&self) -> bool {
+        self.selected_range.map(|r| r.editing.is_some()).unwrap_or(false)
+    }
+}

@@ -53,7 +53,7 @@ impl TableView {
             return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
-        if ui.rect_contains_pointer(ui.max_rect()) {
+        if ui.rect_contains_pointer(ui.max_rect()) && !self.state.is_editing() {
             self.handle_key_input(table, ui);
         }
         self.handle_paste_continue(table, id, ui);
