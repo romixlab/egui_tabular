@@ -457,13 +457,6 @@ impl TableFrontend for VariantBackend {
                     .ui(ui);
 
                 Some(resp)
-                // };
-                // if edit.lost_focus() {
-                //     let converted = Variant::from_str(edit_text, cell_ty);
-                //     Some(converted)
-                // } else {
-                //     None
-                // }
             }
             Variant::Number(Number::U32(num)) => {
                 Some(ui.add(DragValue::new(num).speed(INT_DRAG_SPEED)))
@@ -492,6 +485,10 @@ impl TableFrontend for VariantBackend {
         }
         self.cell_edit = Some((coord, value));
         resp
+    }
+
+    fn cancel_edit(&mut self) {
+        self.cell_edit = None;
     }
 
     fn cell_color(&self, coord: CellCoord) -> Option<Color32> {

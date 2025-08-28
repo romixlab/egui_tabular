@@ -34,7 +34,8 @@ impl TableView {
     ) -> Response {
         let mut is_no_columns = self.state.columns_ordered.is_empty();
         let prev_selected_range = self.state.selected_range;
-        if ui.rect_contains_pointer(ui.max_rect()) {
+        let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
+        if pointer_over_table && !self.state.is_editing() {
             self.handle_paste(is_no_columns, table, ui);
         }
 
@@ -50,8 +51,10 @@ impl TableView {
             return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
-        if ui.rect_contains_pointer(ui.max_rect()) && !self.state.is_editing() {
+        if pointer_over_table && !self.state.is_editing() {
             self.handle_key_input(table, ui);
+        } else if pointer_over_table && self.state.is_editing() {
+            self.handle_key_input_when_editing(table, ui);
         }
         self.handle_paste_continue(table, id, ui);
 
@@ -111,11 +114,12 @@ impl TableView {
                                     crate::util::export_csv(table);
                                     ui.close_menu();
                                 }
-                                if ui.button("Append row").clicked() {
+                                if ui.button("Append row (N)").clicked() {
                                     table.create_row([]);
                                     ui.close_menu();
                                 }
                             });
+                            r.on_hover_text("Tool column, right click for actions");
                         }
                         for column_uid in columns.iter().copied() {
                             let Some(backend_column) = self.state.columns.get(&column_uid) else {

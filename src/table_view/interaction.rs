@@ -8,9 +8,10 @@ use log::warn;
 use rvariant::Variant;
 use tabular_core::backend::{TableBackend, VisualColIdx, VisualRowIdx};
 use tabular_core::{ColumnUid, RowUid};
+use crate::frontend::TableFrontend;
 
 impl TableView {
-    pub(crate) fn handle_key_input(&mut self, data: &mut impl TableBackend, ui: &mut Ui) {
+    pub(crate) fn handle_key_input<T: TableBackend>(&mut self, data: &mut T, ui: &mut Ui) {
         if ui.input(|i| i.modifiers.ctrl && i.key_pressed(Key::C)) {
             // command+C don't work: https://github.com/emilk/egui/issues/4065
             if let Some(selected) = self.state.selected_range {
@@ -43,22 +44,41 @@ impl TableView {
             }
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
-            let is_editing = if let Some(r) = &self.state.selected_range {
-                r.is_editing()
-            } else {
-                false
-            };
-            if !is_editing {
                 self.state.selected_range = Some(SelectedRange::rect(
                     self.state.columns_ordered.len(),
                     data.row_count(),
                 ));
-            }
         }
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.selected_range = None;
         }
+        if ui.input(|i| i.key_pressed(Key::N)) {
+            data.create_row([]);
+        }
         self.handle_selection_moves(data.row_count(), data, ui);
+    }
+
+    pub(crate) fn handle_key_input_when_editing<T: TableBackend + TableFrontend>(&mut self, data: &mut T, ui: &mut Ui) {
+        if ui.input(|i| i.key_pressed(Key::Tab)) {
+            if let Some(already_selected) = &mut self.state.selected_range {
+                if let Some(coord) = already_selected.editing() {
+                    data.commit_cell_edit(coord);
+                }
+                already_selected.move_right(false, self.state.columns_ordered.len());
+                let row_uid = data.row_uid(VisualRowIdx(already_selected.row_start()));
+                let col_uid = data.col_uid(VisualColIdx(already_selected.col_start()));
+                if let (Some(row_uid), Some(col_uid)) = (row_uid, col_uid) {
+                    already_selected.set_editing(Some((row_uid, col_uid).into()));
+                }
+            }
+        }
+
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            if let Some(already_selected) = &mut self.state.selected_range {
+                already_selected.set_editing(None);
+                data.cancel_edit();
+            }
+        }
     }
 
     pub(crate) fn handle_paste(
@@ -310,6 +330,10 @@ impl TableView {
                 if down {
                     already_selected.move_down(shift, row_count);
                 }
+            } else {
+                if data.row_count() > 0 && data.used_columns().next().is_some() {
+                    self.state.selected_range = Some(SelectedRange::single_cell(0, 0));
+                }
             }
         }
         if enter {
@@ -321,7 +345,6 @@ impl TableView {
                         selected.set_editing(Some((row_uid, col_uid).into()));
                     }
                 }
-                // selected.set_editing()
             }
         }
     }
