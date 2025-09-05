@@ -6,7 +6,11 @@ mod tool_column;
 use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
-use egui::{CornerRadius, CursorIcon, Id, Key, Label, Painter, PointerButton, Response, RichText, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2};
+use egui::scroll_area::ScrollSource;
+use egui::{
+    CornerRadius, CursorIcon, Id, Key, Label, Painter, PointerButton, PopupAnchor, Response,
+    RichText, ScrollArea, Sense, Stroke, TextWrapMode, Tooltip, Ui, UiKind, Vec2,
+};
 use egui_extras::{Column, TableBody};
 use std::collections::HashMap;
 use tabular_core::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
@@ -71,12 +75,13 @@ impl TableView {
         let show_tool_column = true;
 
         ScrollArea::horizontal()
-            .drag_to_scroll(false)
+            .scroll_source(ScrollSource::MOUSE_WHEEL)
             .show(ui, |ui| {
                 let mut builder = egui_extras::TableBuilder::new(ui);
                 builder = if show_tool_column {
                     builder.column(
-                        Column::auto_with_initial_suggestion(48.0).at_least(20.0)
+                        Column::auto_with_initial_suggestion(48.0)
+                            .at_least(20.0)
                             .clip(!config.use_heterogeneous_row_heights),
                     )
                 } else {
@@ -103,7 +108,8 @@ impl TableView {
                     // .drag_to_scroll(false) // Drag is used for selection
                     .striped(true)
                     .resizable(true)
-                    .sense(Sense::click())
+                    // .sense(Sense::click())
+                    .sense(Sense::click_and_drag().tap_mut(|s| s.set(Sense::FOCUSABLE, true)))
                     .header(20., |mut h| {
                         if show_tool_column {
                             let (_, r) = h.col(|ui| {
@@ -112,11 +118,11 @@ impl TableView {
                             r.context_menu(|ui| {
                                 if ui.button("Export CSV").clicked() {
                                     crate::util::export_csv(table);
-                                    ui.close_menu();
+                                    ui.close_kind(UiKind::Menu);
                                 }
                                 if ui.button("Append row (N)").clicked() {
                                     table.create_row([]);
-                                    ui.close_menu();
+                                    ui.close_kind(UiKind::Menu);
                                 }
                             });
                             r.on_hover_text("Tool column, right click for actions");
@@ -169,12 +175,16 @@ impl TableView {
                             resp.dnd_set_drag_payload(column_uid);
 
                             if resp.dragged() {
-                                egui::popup::show_tooltip_text(
-                                    ctx,
+                                Tooltip::always_open(
+                                    ctx.clone(),
                                     ui_layer_id,
                                     "_egui_tabular_column_move".into(),
-                                    backend_column.name.as_str(),
-                                );
+                                    PopupAnchor::Pointer,
+                                )
+                                .gap(12.0)
+                                .show(|ui| {
+                                    ui.label(backend_column.name.as_str());
+                                });
                             }
 
                             let mut rect_fix = resp.rect;
@@ -272,7 +282,12 @@ impl TableView {
         let rect = ui.max_rect().translate(Vec2::new(0.0, 8.0));
         let stroke = Stroke::new(1.0, ui.visuals().text_color());
         let p = ui.painter();
-        p.rect_stroke(rect, CornerRadius::same(3), stroke, egui::StrokeKind::Middle);
+        p.rect_stroke(
+            rect,
+            CornerRadius::same(3),
+            stroke,
+            egui::StrokeKind::Middle,
+        );
         p.line_segment([rect.center_top(), rect.center_bottom()], stroke);
         p.line_segment([rect.left_center(), rect.right_center()], stroke);
     }
@@ -318,24 +333,24 @@ impl TableView {
         resp.context_menu(|ui| {
             if col.is_sortable {
                 if ui.button("Sort ascending").clicked() {
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
                 if ui.button("Sort descending").clicked() {
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
                 if ui.button("Add column").clicked() {
                     data.create_column();
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
             if ui.button("Hide").clicked() {
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
             if data.are_cols_skippable() {
                 let mut skipped = data.is_col_skipped(col_uid);
                 if ui.checkbox(&mut skipped, "Skip").changed() {
                     data.skip_col(col_uid, skipped);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             }
         });

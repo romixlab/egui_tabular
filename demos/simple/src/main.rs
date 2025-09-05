@@ -46,7 +46,7 @@ impl Default for SimpleApp {
 impl eframe::App for SimpleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("MenuBar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.hyperlink_to("Abc", "Def");
 
                 ui.hyperlink_to("(source)", "https://github.com/...");
@@ -56,7 +56,7 @@ impl eframe::App for SimpleApp {
                 egui::widgets::global_theme_preference_buttons(ui);
 
                 ui.separator();
-            })
+            });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

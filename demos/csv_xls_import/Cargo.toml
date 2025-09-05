@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-egui = "0.31"
-egui_extras = { version = "0.31", default-features = false, features = [
+egui = "0.32"
+egui_extras = { version = "0.32", default-features = false, features = [
     "serde",
 ] }
-eframe = { version = "0.31", features = ["serde", "persistence"] }
+eframe = { version = "0.32", features = ["serde", "persistence"] }
 egui_tabular = { path = "../.." }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

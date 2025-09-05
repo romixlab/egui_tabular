@@ -15,8 +15,8 @@ rvariant = { path = "../rvariant", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 
 [dependencies]
-egui = { version = "0.31" }
-egui_extras = { version = "0.31", features = ["serde"] }
+egui = { version = "0.32" }
+egui_extras = { version = "0.32", features = ["serde"] }
 #egui-modal = { version = "0.6" }
 #egui-phosphor = { version = "0.7", features = ["fill"] }
 itertools = "0.14"
