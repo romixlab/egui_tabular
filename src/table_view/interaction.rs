@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
 use crate::TableView;
 use egui::{Event, Id, Key, Modal, Ui};
@@ -8,7 +9,6 @@ use log::warn;
 use rvariant::Variant;
 use tabular_core::backend::{TableBackend, VisualColIdx, VisualRowIdx};
 use tabular_core::{ColumnUid, RowUid};
-use crate::frontend::TableFrontend;
 
 impl TableView {
     pub(crate) fn handle_key_input<T: TableBackend>(&mut self, data: &mut T, ui: &mut Ui) {
@@ -44,21 +44,25 @@ impl TableView {
             }
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
-                self.state.selected_range = Some(SelectedRange::rect(
-                    self.state.columns_ordered.len(),
-                    data.row_count(),
-                ));
+            self.state.selected_range = Some(SelectedRange::rect(
+                self.state.columns_ordered.len(),
+                data.row_count(),
+            ));
         }
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.selected_range = None;
         }
-        if ui.input(|i| i.key_pressed(Key::N)) {
+        if !data.persistent_flags().is_read_only && ui.input(|i| i.key_pressed(Key::N)) {
             data.create_row([]);
         }
         self.handle_selection_moves(data.row_count(), data, ui);
     }
 
-    pub(crate) fn handle_key_input_when_editing<T: TableBackend + TableFrontend>(&mut self, data: &mut T, ui: &mut Ui) {
+    pub(crate) fn handle_key_input_when_editing<T: TableBackend + TableFrontend>(
+        &mut self,
+        data: &mut T,
+        ui: &mut Ui,
+    ) {
         if ui.input(|i| i.key_pressed(Key::Tab)) {
             if let Some(already_selected) = &mut self.state.selected_range {
                 if let Some(coord) = already_selected.editing() {
@@ -132,7 +136,7 @@ impl TableView {
             for _ in 0..rows.len() {
                 data.create_row([]);
             }
-            data.one_shot_flags_mut().reloaded = true;
+            data.one_shot_flags_internal_mut().reloaded = true;
         }
         if let Some(selected_range) = &self.state.selected_range {
             let selection_is_exact = rows.len() == selected_range.height()
@@ -336,6 +340,7 @@ impl TableView {
                 }
             }
         }
+        let enter = enter && !data.persistent_flags().is_read_only;
         if enter {
             if let Some(selected) = &mut self.state.selected_range {
                 if selected.is_single_cell() {
