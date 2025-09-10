@@ -4,9 +4,16 @@ use tabular_core::{CellCoord, ColumnUid};
 
 pub trait TableFrontend {
     fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, id: Id);
-    fn show_cell_editor(&mut self, coord: CellCoord, ui: &mut Ui, id: Id)
-        -> Option<egui::Response>;
-    fn cancel_edit(&mut self);
+    fn show_cell_editor(
+        &mut self,
+        coord: CellCoord,
+        ui: &mut Ui,
+        id: Id,
+    ) -> Option<egui::Response> {
+        let (_, _, _) = (coord, ui, id);
+        None
+    }
+    fn cancel_edit(&mut self) {}
 
     /// Returns the rendering configuration for the column.
     fn column_render_config(&mut self, col_uid: ColumnUid) -> TableColumnConfig {
