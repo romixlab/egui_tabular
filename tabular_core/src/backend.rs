@@ -28,7 +28,12 @@ pub trait TableBackend {
     // fn fetch_all(&mut self);
     // fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
     /// Clear all row data from memory, but leave the columns' info.
+    /// If not supported, do nothing and return false from is_clearable().
     fn clear(&mut self);
+
+    fn is_clearable(&self) -> bool {
+        true
+    }
 
     /// Send to server or write to disk all the changes made while commit_immediately was false.
     fn commit_all(&mut self) {}
@@ -37,14 +42,27 @@ pub trait TableBackend {
         let _ = enabled;
     }
 
+    /// Returns flags that do not change from frame to frame.
+    /// Recommended implementation: `&self.persistent_flags`
     fn persistent_flags(&self) -> &PersistentFlags;
+
     /// Returns one shot flags with 1 frame delay, so that user code gets a change to react to flag changes.
+    /// Recommended implementation: `&self.one_shot_flags_delay`
     fn one_shot_flags(&self) -> &OneShotFlags;
+
     /// Returns one shot flags without delay, only to be used in TableView, cleared when show is called.
+    /// Used by TableView.
+    /// Recommended implementation: `&self.one_shot_flags`
     fn one_shot_flags_internal(&self) -> &OneShotFlags;
+
     /// Called in TableView::show() to copy current flags to the ones that will be returned via one_shot_flags()
+    /// Recommended implementation: `self.one_shot_flags_delay = self.one_shot_flags.clone();`
     fn one_shot_flags_archive(&mut self);
-    fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags;
+
+    /// Must return the same OneShotFlags as on_shot_flags_internal, but as a mutable reference.
+    /// Used by TableView.
+    /// Recommended implementation: `&mut self.one_shot_flags`
+    fn one_shot_flags_internal_mut(&mut self) -> &mut OneShotFlags;
 
     /// Process requests, talk to backend, watch for file changes, etc.
     /// Must be called periodically, for example each frame.
@@ -54,7 +72,9 @@ pub trait TableBackend {
     /// Returns all available columns.
     fn available_columns(&self) -> impl Iterator<Item = ColumnUid>;
     /// Returns actually used columns, unused data is e.g. not sent over the network.
-    fn used_columns(&self) -> impl Iterator<Item = ColumnUid>;
+    fn used_columns(&self) -> impl Iterator<Item = ColumnUid> {
+        self.available_columns()
+    }
     fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn>;
     fn col_uid(&self, col_idx: VisualColIdx) -> Option<ColumnUid>;
 
@@ -69,10 +89,14 @@ pub trait TableBackend {
     fn row_count(&self) -> usize;
     /// Map index from [0..row_count) range to unique row id, applying sort order in the process.
     fn row_uid(&self, row_idx: VisualRowIdx) -> Option<RowUid>;
+    /// Returns all row RowUid's.
     fn rows(&self) -> impl Iterator<Item = RowUid>;
-    fn un_skipped_rows(&self) -> impl Iterator<Item = RowUid>;
+    /// If backend supports row skipping, this function must return non-skipped RowUid's.
+    fn un_skipped_rows(&self) -> impl Iterator<Item = RowUid> {
+        self.rows()
+    }
 
-    /// Get value as Variant, not necessary to implement, but could be useful.
+    /// Get value as Variant, not necessary to implement, but could be useful. CSV export works by calling get().
     fn get(&self, coord: CellCoord) -> Option<&Variant> {
         let _ = coord;
         None
@@ -95,7 +119,9 @@ pub trait TableBackend {
         let (_, _) = (coord, variant);
     }
 
-    fn commit_cell_edit(&mut self, coord: CellCoord);
+    fn commit_cell_edit(&mut self, coord: CellCoord) {
+        let _ = coord;
+    }
     // fn modify_one(&mut self, cell: CellCoord, new_value: Variant);
     // fn modify_many(&mut self, new_values: impl Iterator<Item = (CellCoord, Value)>, commit: bool);
     // fn remove_one(&mut self, cell: CellCoord, commit: bool);
@@ -135,10 +161,6 @@ pub trait TableBackend {
         &[]
     }
 
-    /// Return true if skipping rows is supported / required
-    fn are_rows_skippable(&self) -> bool {
-        false
-    }
     /// Mark row as disabled, VariantView will show all cells as strike-through
     fn skip_row(&mut self, row_uid: RowUid, skipped: bool) {
         let (_, _) = (row_uid, skipped);
@@ -150,10 +172,6 @@ pub trait TableBackend {
         false
     }
 
-    /// Return true if skipping cols is supported / required
-    fn are_cols_skippable(&self) -> bool {
-        false
-    }
     /// Mark col as disabled, VariantView will show all cells as strike-through
     fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {
         let (_, _) = (col_uid, skipped);
@@ -171,15 +189,16 @@ pub trait TableBackend {
     }
 }
 
-#[derive(Default)]
 pub struct PersistentFlags {
     // Persistent flags: value is kept across poll() calls
     /// True until reload() is called while e.g. file was changed on disk and before reload() called.
     pub is_reload_recommended: bool,
     /// True until reload() is called if data was heavily modified on the backend.
     pub is_reload_required: bool,
-    /// True when data should not be modified
+    /// Whether table data is read only. Append row button will be inactive if this is true.
     pub is_read_only: bool,
+    /// Whether table data can be cleared or not. TableView won't show clear button and won't call clear() if false.
+    pub is_clearable: bool,
     /// True when column information is available.
     pub column_info_present: bool,
     /// True when full row uid set is available
@@ -192,10 +211,36 @@ pub struct PersistentFlags {
     pub have_uncommitted_data: bool,
     /// True when locally modified cell was also updated remotely
     pub have_collisions: bool,
+    /// Return true if skipping cols is supported / required
+    pub are_cols_skippable: bool,
+    /// Return true if skipping rows is supported / required
+    pub are_rows_skippable: bool,
+    /// Returns true if table cell's can be read as [Variant](Variant). For example, CSV export will work if this is true.
+    pub is_get_variant_supported: bool,
+}
+
+impl Default for PersistentFlags {
+    fn default() -> Self {
+        Self {
+            is_reload_recommended: false,
+            is_reload_required: false,
+            is_read_only: false,
+            is_clearable: true,
+            column_info_present: true,
+            row_set_present: true,
+            cells_loading: false,
+            have_all_cells: true,
+            have_uncommitted_data: false,
+            have_collisions: false,
+            are_cols_skippable: true,
+            are_rows_skippable: true,
+            is_get_variant_supported: false,
+        }
+    }
 }
 
 /// One shot flags: all flags are reset to false after poll() call
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct OneShotFlags {
     /// Set once data backend is created
     pub first_pass: bool,
@@ -222,7 +267,33 @@ pub struct OneShotFlags {
     pub rows_selected: Option<Vec<RowUid>>,
 }
 
+impl Default for OneShotFlags {
+    fn default() -> Self {
+        Self {
+            columns_reset: true,
+            row_set_updated: true,
+            ..OneShotFlags::zero()
+        }
+    }
+}
+
 impl OneShotFlags {
+    pub fn zero() -> Self {
+        Self {
+            first_pass: false,
+            reloaded: false,
+            columns_reset: false,
+            columns_changed: false,
+            row_set_updated: false,
+            visible_row_vec_updated: false,
+            cleared: false,
+            column_mapping_changed: None,
+            row_skip_set_changed: false,
+            col_skip_set_changed: false,
+            rows_selected: None,
+        }
+    }
+
     /// Returns true if any of the one shot flags is set to true, except first_pass.
     pub fn any_changed(&self) -> bool {
         self.reloaded
@@ -234,6 +305,7 @@ impl OneShotFlags {
             || self.column_mapping_changed.is_some()
             || self.row_skip_set_changed
             || self.col_skip_set_changed
+            || self.rows_selected.is_some()
     }
 }
 
@@ -247,4 +319,18 @@ pub struct Rgb {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl BackendColumn {
+    pub fn new(name: impl AsRef<str>, ty: impl AsRef<str>) -> Self {
+        Self {
+            name: name.as_ref().to_string(),
+            synonyms: vec![],
+            ty: ty.as_ref().to_string(),
+            is_sortable: false,
+            is_required: false,
+            is_used: false,
+            is_skipped: false,
+        }
+    }
 }

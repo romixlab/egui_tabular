@@ -21,6 +21,7 @@ pub struct VariantBackend {
     persistent_flags: PersistentFlags,
     one_shot_flags: OneShotFlags,
     one_shot_flags_delay: OneShotFlags,
+    read_only: bool,
 
     column_mapping_choices: Vec<String>,
 }
@@ -69,14 +70,14 @@ impl VariantBackend {
                 is_read_only: false,
                 column_info_present: true,
                 row_set_present: true,
+                are_rows_skippable: true,
+                are_cols_skippable: true,
+                is_get_variant_supported: true,
                 ..Default::default()
             },
-            one_shot_flags: OneShotFlags {
-                columns_reset: true,
-                row_set_updated: true,
-                ..Default::default()
-            },
-            one_shot_flags_delay: Default::default(),
+            one_shot_flags: OneShotFlags::default(),
+            one_shot_flags_delay: OneShotFlags::default(),
+            read_only: false,
             column_mapping_choices: vec![],
         }
     }
@@ -202,6 +203,10 @@ impl VariantBackend {
     pub fn clear_metadata(&mut self) {
         self.cell_metadata.clear();
     }
+
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
+    }
 }
 
 impl TableBackend for VariantBackend {
@@ -231,15 +236,11 @@ impl TableBackend for VariantBackend {
         self.one_shot_flags_delay = self.one_shot_flags.clone();
     }
 
-    fn one_shot_flags_mut(&mut self) -> &mut OneShotFlags {
+    fn one_shot_flags_internal_mut(&mut self) -> &mut OneShotFlags {
         &mut self.one_shot_flags
     }
 
     fn available_columns(&self) -> impl Iterator<Item = ColumnUid> {
-        self.columns.keys().copied()
-    }
-
-    fn used_columns(&self) -> impl Iterator<Item = ColumnUid> {
         self.columns.keys().copied()
     }
 
@@ -304,10 +305,6 @@ impl TableBackend for VariantBackend {
         &self.column_mapping_choices
     }
 
-    fn are_rows_skippable(&self) -> bool {
-        true
-    }
-
     fn skip_row(&mut self, row_uid: RowUid, skipped: bool) {
         if skipped {
             self.skipped_rows.insert(row_uid);
@@ -324,10 +321,6 @@ impl TableBackend for VariantBackend {
 
     fn is_row_skipped(&self, row_uid: RowUid) -> bool {
         self.skipped_rows.contains(&row_uid)
-    }
-
-    fn are_cols_skippable(&self) -> bool {
-        true
     }
 
     fn skip_col(&mut self, col_uid: ColumnUid, skipped: bool) {

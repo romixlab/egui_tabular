@@ -153,8 +153,8 @@ impl CsvImporter {
             }
         }
         self.state.status = IoStatus::Loaded;
-        backend.one_shot_flags_mut().columns_reset = true;
-        backend.one_shot_flags_mut().reloaded = true;
+        backend.one_shot_flags_internal_mut().columns_reset = true;
+        backend.one_shot_flags_internal_mut().reloaded = true;
     }
 
     fn convert_cell_value(&self, col_uid: ColumnUid, value: &str) -> Variant {
