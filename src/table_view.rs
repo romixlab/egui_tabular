@@ -39,7 +39,8 @@ impl TableView {
         let mut is_no_columns = self.state.columns_ordered.is_empty();
         let prev_selected_range = self.state.selected_range;
         let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
-        if pointer_over_table && !self.state.is_editing() {
+        let is_read_only = table.persistent_flags().is_read_only;
+        if pointer_over_table && !is_read_only && !self.state.is_editing() {
             self.handle_paste(is_no_columns, table, ui);
         }
 
@@ -48,7 +49,7 @@ impl TableView {
 
         if is_no_columns {
             table.one_shot_flags_archive();
-            *table.one_shot_flags_mut() = OneShotFlags::default();
+            *table.one_shot_flags_internal_mut() = OneShotFlags::zero();
             if ui.button("Create column").clicked() {
                 table.create_column();
             }
@@ -108,6 +109,7 @@ impl TableView {
                     // .drag_to_scroll(false) // Drag is used for selection
                     .striped(true)
                     .resizable(true)
+                    .stick_to_bottom(true)
                     // .sense(Sense::click())
                     .sense(Sense::click_and_drag().tap_mut(|s| s.set(Sense::FOCUSABLE, true)))
                     .header(20., |mut h| {
@@ -116,14 +118,7 @@ impl TableView {
                                 Self::draw_table_icon(ui);
                             });
                             r.context_menu(|ui| {
-                                if ui.button("Export CSV").clicked() {
-                                    crate::util::export_csv(table);
-                                    ui.close_kind(UiKind::Menu);
-                                }
-                                if ui.button("Append row (N)").clicked() {
-                                    table.create_row([]);
-                                    ui.close_kind(UiKind::Menu);
-                                }
+                                tool_column::tool_column_header_menu_ui(ui, table);
                             });
                             r.on_hover_text("Tool column, right click for actions");
                         }
@@ -143,7 +138,7 @@ impl TableView {
                                     id,
                                 );
                                 if changed {
-                                    table.one_shot_flags_mut().column_mapping_changed =
+                                    table.one_shot_flags_internal_mut().column_mapping_changed =
                                         Some(column_uid);
                                 }
                                 let col_name = if backend_column.name.is_empty() {
@@ -161,10 +156,12 @@ impl TableView {
                                         Self::column_name_hover_ui(&backend_column, ui);
                                     });
                                 // });
-                                ui.add(
-                                    Label::new(backend_column.ty.as_str())
-                                        .wrap_mode(TextWrapMode::Extend),
-                                );
+                                if !backend_column.ty.is_empty() {
+                                    ui.add(
+                                        Label::new(backend_column.ty.as_str())
+                                            .wrap_mode(TextWrapMode::Extend),
+                                    );
+                                }
 
                                 if painter.is_none() {
                                     painter = Some(ui.painter().clone());
@@ -270,11 +267,11 @@ impl TableView {
             } else {
                 vec![]
             };
-            table.one_shot_flags_mut().rows_selected = Some(rows_selected);
+            table.one_shot_flags_internal_mut().rows_selected = Some(rows_selected);
         }
 
         table.one_shot_flags_archive();
-        *table.one_shot_flags_mut() = OneShotFlags::default();
+        *table.one_shot_flags_internal_mut() = OneShotFlags::zero();
         resp_ret.unwrap_or_else(|| ui.label("??"))
     }
 
@@ -346,7 +343,7 @@ impl TableView {
             if ui.button("Hide").clicked() {
                 ui.close_kind(UiKind::Menu);
             }
-            if data.are_cols_skippable() {
+            if data.persistent_flags().are_cols_skippable {
                 let mut skipped = data.is_col_skipped(col_uid);
                 if ui.checkbox(&mut skipped, "Skip").changed() {
                     data.skip_col(col_uid, skipped);
@@ -443,7 +440,7 @@ impl TableView {
                     ui.add(Label::new(format!("{row_idx}")).selectable(false));
                 });
                 resp.context_menu(|ui| {
-                    tool_column::tool_column_context_menu_ui(ui, table, row_uid);
+                    tool_column::tool_column_row_menu_ui(ui, table, row_uid);
                 });
                 if resp.clicked() {
                     if let Some(r) = &mut s.selected_range {
@@ -555,7 +552,9 @@ impl TableView {
                             r.stretch_to(row_idx, col_idx);
                         } else {
                             if *r == current_cell {
-                                r.set_editing(Some(coord));
+                                if !table.persistent_flags().is_read_only {
+                                    r.set_editing(Some(coord));
+                                }
                             } else {
                                 if let Some(coord) = r.editing() {
                                     commit_edit = Some(coord);
