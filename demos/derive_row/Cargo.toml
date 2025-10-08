@@ -1,5 +1,5 @@
 [package]
-name = "simple"
+name = "derive_row"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,8 +8,6 @@ egui = "0.32"
 eframe = { version = "0.32", features = ["serde", "persistence"] }
 egui_tabular = { path = "../.." }
 
-names = { version = "0.14", default-features = false }
-fastrand = "2"
 log = "0.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

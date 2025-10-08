@@ -6,6 +6,8 @@
       <sourceFolder url="file://$MODULE_DIR$/demos/simple/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tabular_core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/demos/derive_row/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tabular_derive/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

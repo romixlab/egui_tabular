@@ -15,5 +15,13 @@ mod util;
 pub use rvariant;
 pub use table_view::TableView;
 
-pub use tabular_core::backend::{CellMetadata, Rgb, TableBackend, VisualRowIdx};
+pub use tabular_core;
+pub use tabular_core::backend::{
+    BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, Rgb, TableBackend, VisualColIdx,
+    VisualRowIdx,
+};
 pub use tabular_core::{CellCoord, ColumnUid, RowUid};
+
+pub use frontend::TableFrontend;
+
+pub use tabular_derive::TabularRow;

@@ -51,7 +51,7 @@ pub fn export_csv(table: &impl TableBackend) {
     let mut column_names = vec![];
     for col_uid in table.used_columns() {
         let Some(col) = table.column_info(col_uid) else {
-            continue
+            continue;
         };
         column_names.push(col.name.as_str());
     }

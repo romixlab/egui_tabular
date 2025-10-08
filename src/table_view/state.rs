@@ -227,6 +227,8 @@ impl SelectedRange {
 
 impl State {
     pub fn is_editing(&self) -> bool {
-        self.selected_range.map(|r| r.editing.is_some()).unwrap_or(false)
+        self.selected_range
+            .map(|r| r.editing.is_some())
+            .unwrap_or(false)
     }
 }

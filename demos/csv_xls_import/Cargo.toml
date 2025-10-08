@@ -5,9 +5,6 @@ edition = "2021"
 
 [dependencies]
 egui = "0.32"
-egui_extras = { version = "0.32", default-features = false, features = [
-    "serde",
-] }
 eframe = { version = "0.32", features = ["serde", "persistence"] }
 egui_tabular = { path = "../.." }
 

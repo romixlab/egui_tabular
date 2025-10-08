@@ -1,39 +1,43 @@
-use egui_tabular::backends::variant::VariantBackend;
-use egui_tabular::rvariant::{Number, NumberTy, Variant, VariantTy};
 use egui_tabular::table_view::TableViewConfig;
-use egui_tabular::{ColumnUid, TableView};
+use egui_tabular::{TableView, TabularRow};
 
-struct SimpleApp {
-    backend: VariantBackend,
+#[derive(TabularRow)]
+struct UserRow {
+    name: String,
+    x: u32,
+    y: u32,
+    #[format = "{:.02}"]
+    strength: f32,
+}
+
+struct DeriveRowApp {
+    backend: UserRowTabularBackend,
     viewer: TableView,
     config: TableViewConfig,
 }
 
-impl Default for SimpleApp {
+impl Default for DeriveRowApp {
     fn default() -> Self {
-        let mut backend = VariantBackend::new([
-            (
-                "Name".into(),
-                VariantTy::Str,
-                Some(Variant::Str("Default name".into())),
-            ),
-            (
-                "Count".into(),
-                VariantTy::Number(NumberTy::U32),
-                Some(Variant::Number(Number::U32(0))),
-            ),
+        let backend = UserRowTabularBackend::new(vec![
+            UserRow {
+                name: "Point A".to_string(),
+                x: 1,
+                y: 3,
+                strength: 1.0,
+            },
+            UserRow {
+                name: "Point B".to_string(),
+                x: 5,
+                y: 7,
+                strength: 2.0,
+            },
+            UserRow {
+                name: "Point C".to_string(),
+                x: 9,
+                y: 11,
+                strength: 3.0,
+            },
         ]);
-        let mut rng = fastrand::Rng::new();
-        let mut name_gen = names::Generator::with_naming(names::Name::Numbered);
-        for _ in 0..10_000 {
-            backend.insert_row([
-                (ColumnUid(0), Variant::Str(name_gen.next().unwrap())),
-                (
-                    ColumnUid(1),
-                    Variant::Number(Number::U32(rng.u32(0..=1000))),
-                ),
-            ]);
-        }
         Self {
             backend,
             viewer: TableView::new(),
@@ -42,19 +46,11 @@ impl Default for SimpleApp {
     }
 }
 
-impl eframe::App for SimpleApp {
+impl eframe::App for DeriveRowApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("MenuBar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.hyperlink_to("Abc", "Def");
-
-                ui.hyperlink_to("(source)", "https://github.com/...");
-
-                ui.separator();
-
                 egui::widgets::global_theme_preference_buttons(ui);
-
-                ui.separator();
             });
         });
 
@@ -70,7 +66,7 @@ fn main() {
     use eframe::App;
 
     eframe::run_simple_native(
-        "Simple Demo",
+        "Derive TabularRow Demo",
         eframe::NativeOptions {
             // default_theme: eframe::Theme::Dark,
             centered: true,
@@ -78,7 +74,7 @@ fn main() {
             ..Default::default()
         },
         {
-            let mut app = SimpleApp::default();
+            let mut app = DeriveRowApp::default();
             move |ctx, frame| {
                 app.update(ctx, frame);
             }
@@ -99,7 +95,7 @@ fn main() {
             .start(
                 "the_canvas_id",
                 web_options,
-                Box::new(|_cc| Ok(Box::new(SimpleApp::default()))),
+                Box::new(|_cc| Ok(Box::new(DeriveRowApp::default()))),
             )
             .await;
 
