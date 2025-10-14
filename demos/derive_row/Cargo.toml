@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-egui = "0.32"
-eframe = { version = "0.32", features = ["serde", "persistence"] }
+egui = "0.33"
+eframe = { version = "0.33", features = ["serde", "persistence"] }
 egui_tabular = { path = "../.." }
 
 log = "0.4"
