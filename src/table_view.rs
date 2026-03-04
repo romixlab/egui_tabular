@@ -81,7 +81,7 @@ impl TableView {
                 let mut builder = egui_extras::TableBuilder::new(ui);
                 builder = if show_tool_column {
                     builder.column(
-                        Column::auto_with_initial_suggestion(48.0)
+                        Column::initial(48.0)
                             .at_least(20.0)
                             .clip(!config.use_heterogeneous_row_heights),
                     )
