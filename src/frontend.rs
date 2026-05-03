@@ -3,7 +3,7 @@ use egui_extras::Column as TableColumnConfig;
 use tabular_core::{CellCoord, ColumnUid};
 
 pub trait TableFrontend {
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, id: Id);
+    fn show_cell_view(&mut self, coord: CellCoord, ui: &mut Ui, id: Id);
     fn show_cell_editor(
         &mut self,
         coord: CellCoord,

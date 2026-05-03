@@ -539,7 +539,7 @@ impl TableView {
                             }
                         }
                     } else {
-                        ui.add_enabled_ui(false, |ui| {
+                        ui.add_enabled_ui(true, |ui| {
                             table.show_cell_view(coord, ui, id);
                         });
                     }

@@ -351,7 +351,7 @@ impl TableBackend for VariantBackend {
 }
 
 impl TableFrontend for VariantBackend {
-    fn show_cell_view(&self, coord: CellCoord, ui: &mut Ui, _id: Id) {
+    fn show_cell_view(&mut self, coord: CellCoord, ui: &mut Ui, _id: Id) {
         let Some(value) = self.cell_data.get(&coord) else {
             return;
         };
