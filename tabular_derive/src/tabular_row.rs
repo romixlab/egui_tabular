@@ -169,7 +169,7 @@ fn impl_table_frontend(struct_def: &ItemStruct, backend_ident: &Ident) -> TokenS
     });
     quote! {
         impl egui_tabular::TableFrontend for #backend_ident {
-            fn show_cell_view(&self, coord: egui_tabular::CellCoord, ui: &mut egui::Ui, _id: egui::Id) {
+            fn show_cell_view(&mut self, coord: egui_tabular::CellCoord, ui: &mut egui::Ui, _id: egui::Id) {
                 let col: u32 = coord.col_uid.0;
                 let row_idx: usize = coord.row_uid.0 as usize;
                 let Some(row) = self.data.get(row_idx) else {

@@ -1,0 +1,9 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tabular_derive = { path = "../tabular_derive" }
+egui_tabular = { path = ".." }
+egui.workspace = true

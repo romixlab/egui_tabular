@@ -7,15 +7,17 @@ edition = "2021"
 members = [
     "tabular_core",
     "tabular_derive",
-    "demos/*",
+    "demos/*", "tests",
 ]
 
 [workspace.dependencies]
 rvariant = { path = "../rvariant", features = ["serde"] }
 strum = { version = "0.28", features = ["derive"] }
+egui = { version = "0.33" }
+eframe = { version = "0.33", features = ["serde", "persistence"] }
 
 [dependencies]
-egui = { version = "0.33" }
+egui.workspace = true
 egui_extras = { version = "0.33", features = ["serde"] }
 #egui-modal = { version = "0.6" }
 #egui-phosphor = { version = "0.7", features = ["fill"] }
