@@ -38,7 +38,7 @@ impl Default for TabularImporterConfig {
 
 impl TabularImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
-        let mut backend = VariantBackend::new([]);
+        let mut backend = VariantBackend::new::<&str>([]);
         for (uid, r) in required_columns.required_columns.iter() {
             backend.insert_column(
                 Some(*uid),

@@ -38,8 +38,8 @@ struct VariantCellMetadata {
 }
 
 impl VariantBackend {
-    pub fn new<'i>(
-        columns: impl IntoIterator<Item = (&'i str, VariantTy, Option<Variant>)>,
+    pub fn new<N: AsRef<str>>(
+        columns: impl IntoIterator<Item = (N, VariantTy, Option<Variant>)>,
     ) -> Self {
         VariantBackend {
             cell_data: Default::default(),
@@ -52,6 +52,7 @@ impl VariantBackend {
                 .enumerate()
                 .map(|(idx, (name, ty, default))| {
                     let col_uid = ColumnUid(idx as u32);
+                    let name = name.as_ref();
                     let backend_column = BackendColumn {
                         name: name.into(),
                         synonyms: vec![],
@@ -344,9 +345,13 @@ impl TableBackend for VariantBackend {
             .unwrap_or(false)
     }
 
-    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata) {
+    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata, merge: bool) {
         let m = self.cell_metadata.entry(coord).or_default();
-        m.common = meta;
+        if merge {
+            m.common = m.common.merge(meta);
+        } else {
+            m.common = meta;
+        }
     }
 }
 
