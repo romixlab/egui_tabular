@@ -184,8 +184,8 @@ pub trait TableBackend {
     }
 
     /// Set cell color or tooltip
-    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata) {
-        let (_, _) = (coord, meta);
+    fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata, merge: bool) {
+        let (_, _, _) = (coord, meta, merge);
     }
 }
 
@@ -315,6 +315,7 @@ pub struct CellMetadata {
     pub tooltip: Option<Arc<String>>,
 }
 
+#[derive(Copy, Clone)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
@@ -333,4 +334,45 @@ impl BackendColumn {
             is_skipped: false,
         }
     }
+}
+
+impl CellMetadata {
+    pub fn color(rgb: Rgb) -> Self {
+        Self {
+            color: Some(rgb),
+            tooltip: None,
+        }
+    }
+
+    pub fn tooltip(tooltip: Arc<String>) -> Self {
+        Self {
+            color: None,
+            tooltip: Some(tooltip),
+        }
+    }
+
+    pub fn merge(&self, other: Self) -> Self {
+        Self {
+            color: self.color.or(other.color),
+            tooltip: self.tooltip.clone().or(other.tooltip),
+        }
+    }
+}
+
+impl Rgb {
+    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
+    pub const RED: Self = Self::from_rgb(255, 0, 0);
+    pub const GREEN: Self = Self::from_rgb(0, 255, 0);
+    pub const LIGHT_GREEN: Self = Self::from_rgb(0x90, 0xEE, 0x90);
+    pub const BLUE: Self = Self::from_rgb(0, 0, 255);
+
+    pub const CYAN: Self = Self::from_rgb(0, 255, 255);
+    pub const MAGENTA: Self = Self::from_rgb(255, 0, 255);
+    pub const YELLOW: Self = Self::from_rgb(255, 255, 0);
+    pub const ORANGE: Self = Self::from_rgb(255, 165, 0);
+    pub const PURPLE: Self = Self::from_rgb(0x80, 0, 0x80);
+    pub const GOLD: Self = Self::from_rgb(255, 215, 0);
 }
