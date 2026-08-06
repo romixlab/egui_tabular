@@ -6,9 +6,10 @@ mod tool_column;
 use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
 pub use config::TableViewConfig;
+use egui::epaint::{PathShape, PathStroke};
 use egui::scroll_area::ScrollSource;
 use egui::{
-    CornerRadius, CursorIcon, Id, Key, Label, Painter, PointerButton, PopupAnchor, Response,
+    CornerRadius, CursorIcon, Id, Key, Label, Painter, PointerButton, PopupAnchor, Pos2, Response,
     RichText, ScrollArea, Sense, Stroke, TextWrapMode, Tooltip, Ui, UiKind, Vec2,
 };
 use egui_extras::{Column, TableBody};
@@ -502,6 +503,16 @@ impl TableView {
                         );
                     }
 
+                    if let Some(corner) = table.cell_corner(coord) {
+                        let r = ui_max_rect.right_top();
+                        ui.painter().add(PathShape {
+                            points: vec![Pos2::new(r.x - 10.0, r.y), r, Pos2::new(r.x, r.y + 10.0)],
+                            closed: true,
+                            fill: corner,
+                            stroke: PathStroke::NONE,
+                        });
+                    }
+
                     // Lines on the first and last row of selection
                     let st = Stroke {
                         width: 1.,
@@ -567,8 +578,15 @@ impl TableView {
                     }
                 }
                 if resp.double_clicked_by(PointerButton::Primary) {}
-                if let Some(tooltip) = table.cell_tooltip(coord) {
-                    resp.on_hover_text(tooltip);
+                let tooltips = table.cell_tooltips(coord);
+                if !tooltips.is_empty() {
+                    resp.on_hover_ui(|ui| {
+                        ui.vertical(|ui| {
+                            for msg in tooltips {
+                                ui.label(msg);
+                            }
+                        });
+                    });
                 }
             } // for col_uid in used_columns
 

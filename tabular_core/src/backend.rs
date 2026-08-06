@@ -183,9 +183,14 @@ pub trait TableBackend {
         false
     }
 
-    /// Set cell color or tooltip
+    /// Set cell metadata (color, tooltip, etc.)
     fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata, merge: bool) {
         let (_, _, _) = (coord, meta, merge);
+    }
+    /// Get cell metadata
+    fn metadata(&self, coord: CellCoord) -> Option<&CellMetadata> {
+        let _ = coord;
+        None
     }
 }
 
@@ -309,10 +314,12 @@ impl OneShotFlags {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
+#[non_exhaustive]
 pub struct CellMetadata {
     pub color: Option<Rgb>,
-    pub tooltip: Option<Arc<String>>,
+    pub corner: Option<Rgb>,
+    pub tooltips: Vec<Arc<String>>,
 }
 
 #[derive(Copy, Clone)]
@@ -337,24 +344,77 @@ impl BackendColumn {
 }
 
 impl CellMetadata {
-    pub fn color(rgb: Rgb) -> Self {
-        Self {
-            color: Some(rgb),
-            tooltip: None,
-        }
-    }
-
-    pub fn tooltip(tooltip: Arc<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             color: None,
-            tooltip: Some(tooltip),
+            corner: None,
+            tooltips: vec![],
         }
     }
 
-    pub fn merge(&self, other: Self) -> Self {
+    pub fn color(self, rgb: Rgb) -> Self {
+        Self {
+            color: Some(rgb),
+            tooltips: self.tooltips,
+            corner: self.corner,
+        }
+    }
+
+    pub fn color_opt(self, color: Option<Rgb>) -> Self {
+        Self {
+            color,
+            tooltips: self.tooltips,
+            corner: self.corner,
+        }
+    }
+
+    pub fn corner(self, rgb: Rgb) -> Self {
+        Self {
+            color: self.color,
+            tooltips: self.tooltips,
+            corner: Some(rgb),
+        }
+    }
+
+    pub fn corner_opt(self, corner: Option<Rgb>) -> Self {
+        Self {
+            color: self.color,
+            tooltips: self.tooltips,
+            corner,
+        }
+    }
+
+    pub fn tooltip(self, tooltip: Arc<String>) -> Self {
+        let mut tooltips = self.tooltips;
+        tooltips.push(tooltip);
+        Self {
+            color: self.color,
+            tooltips,
+            corner: self.corner,
+        }
+    }
+
+    pub fn tooltip_opt(self, tooltip: Option<Arc<String>>) -> Self {
+        let mut tooltips = self.tooltips;
+        if let Some(tooltip) = tooltip {
+            tooltips.push(tooltip);
+        }
+        Self {
+            color: self.color,
+            tooltips,
+            corner: self.corner,
+        }
+    }
+
+    pub fn merge(self, other: Self) -> Self {
         Self {
             color: self.color.or(other.color),
-            tooltip: self.tooltip.clone().or(other.tooltip),
+            tooltips: self
+                .tooltips
+                .into_iter()
+                .chain(other.tooltips.into_iter())
+                .collect(),
+            corner: self.corner.or(other.corner),
         }
     }
 }

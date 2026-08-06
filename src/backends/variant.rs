@@ -348,9 +348,17 @@ impl TableBackend for VariantBackend {
     fn set_metadata(&mut self, coord: CellCoord, meta: CellMetadata, merge: bool) {
         let m = self.cell_metadata.entry(coord).or_default();
         if merge {
-            m.common = m.common.merge(meta);
+            m.common = m.common.clone().merge(meta);
         } else {
             m.common = meta;
+        }
+    }
+
+    fn metadata(&self, coord: CellCoord) -> Option<&CellMetadata> {
+        if let Some(meta) = self.cell_metadata.get(&coord) {
+            Some(&meta.common)
+        } else {
+            None
         }
     }
 }
@@ -504,18 +512,23 @@ impl TableFrontend for VariantBackend {
             .flatten()
     }
 
-    fn cell_tooltip(&self, coord: CellCoord) -> Option<&str> {
+    fn cell_tooltips(&self, coord: CellCoord) -> Vec<&str> {
+        let mut tooltips = vec![];
+        if let Some(meta) = self.cell_metadata.get(&coord) {
+            if let Some(msg) = &meta.conversion_fail_message {
+                tooltips.push(msg.as_str());
+            }
+            for msg in &meta.common.tooltips {
+                tooltips.push(&msg);
+            }
+        }
+        tooltips
+    }
+
+    fn cell_corner(&self, coord: CellCoord) -> Option<Color32> {
         self.cell_metadata
             .get(&coord)
-            .map(|meta| {
-                if let Some(msg) = &meta.conversion_fail_message {
-                    Some(msg.as_str())
-                } else if let Some(tooltip) = &meta.common.tooltip {
-                    Some(tooltip.as_str())
-                } else {
-                    None
-                }
-            })
+            .map(|meta| meta.common.corner.map(|c| Color32::from_rgb(c.r, c.g, c.b)))
             .flatten()
     }
 }

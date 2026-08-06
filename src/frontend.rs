@@ -36,7 +36,12 @@ pub trait TableFrontend {
     }
 
     /// Show tooltip on cell hover
-    fn cell_tooltip(&self, _coord: CellCoord) -> Option<&str> {
+    fn cell_tooltips(&self, _coord: CellCoord) -> Vec<&str> {
+        vec![]
+    }
+
+    /// Show colored corner in a cell
+    fn cell_corner(&self, _coord: CellCoord) -> Option<Color32> {
         None
     }
 }
