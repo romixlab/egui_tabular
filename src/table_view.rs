@@ -277,7 +277,7 @@ impl TableView {
 
     fn draw_table_icon(ui: &mut Ui) {
         let rect = ui.max_rect().translate(Vec2::new(0.0, 8.0));
-        let stroke = Stroke::new(1.0, ui.visuals().text_color());
+        let stroke = Stroke::new(1.0_f32, ui.visuals().text_color());
         let p = ui.painter();
         p.rect_stroke(
             rect,

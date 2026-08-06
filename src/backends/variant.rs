@@ -394,10 +394,10 @@ impl TableFrontend for VariantBackend {
             let p = ui.painter();
             let r = ui.max_rect();
             // cross out cell
-            p.line_segment([r.min, r.max], Stroke::new(1.0, color));
+            p.line_segment([r.min, r.max], Stroke::new(1.0_f32, color));
             p.line_segment(
                 [Pos2::new(r.min.x, r.max.y), Pos2::new(r.max.x, r.min.y)],
-                Stroke::new(1.0, color),
+                Stroke::new(1.0_f32, color),
             );
         }
     }
