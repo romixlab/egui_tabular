@@ -320,6 +320,7 @@ pub struct CellMetadata {
     pub color: Option<Rgb>,
     pub corner: Option<Rgb>,
     pub tooltips: Vec<Arc<String>>,
+    pub wrap_mode: Option<WrapMode>,
 }
 
 #[derive(Copy, Clone)]
@@ -349,6 +350,7 @@ impl CellMetadata {
             color: None,
             corner: None,
             tooltips: vec![],
+            wrap_mode: None,
         }
     }
 
@@ -357,6 +359,7 @@ impl CellMetadata {
             color: Some(rgb),
             tooltips: self.tooltips,
             corner: self.corner,
+            wrap_mode: self.wrap_mode,
         }
     }
 
@@ -365,6 +368,7 @@ impl CellMetadata {
             color,
             tooltips: self.tooltips,
             corner: self.corner,
+            wrap_mode: self.wrap_mode,
         }
     }
 
@@ -373,6 +377,7 @@ impl CellMetadata {
             color: self.color,
             tooltips: self.tooltips,
             corner: Some(rgb),
+            wrap_mode: self.wrap_mode,
         }
     }
 
@@ -381,6 +386,7 @@ impl CellMetadata {
             color: self.color,
             tooltips: self.tooltips,
             corner,
+            wrap_mode: self.wrap_mode,
         }
     }
 
@@ -391,6 +397,7 @@ impl CellMetadata {
             color: self.color,
             tooltips,
             corner: self.corner,
+            wrap_mode: self.wrap_mode,
         }
     }
 
@@ -403,6 +410,16 @@ impl CellMetadata {
             color: self.color,
             tooltips,
             corner: self.corner,
+            wrap_mode: self.wrap_mode,
+        }
+    }
+
+    pub fn wrap_mode(self, wrap_mode: WrapMode) -> Self {
+        Self {
+            color: self.color,
+            tooltips: self.tooltips,
+            corner: self.corner,
+            wrap_mode: Some(wrap_mode),
         }
     }
 
@@ -415,6 +432,7 @@ impl CellMetadata {
                 .chain(other.tooltips.into_iter())
                 .collect(),
             corner: self.corner.or(other.corner),
+            wrap_mode: self.wrap_mode.or(other.wrap_mode),
         }
     }
 }
@@ -435,4 +453,21 @@ impl Rgb {
     pub const ORANGE: Self = Self::from_rgb(255, 165, 0);
     pub const PURPLE: Self = Self::from_rgb(0x80, 0, 0x80);
     pub const GOLD: Self = Self::from_rgb(255, 215, 0);
+}
+
+/// How to wrap and elide text (other ui elements might be supported in the future as well).
+///
+/// Same as egui::TextWrapMode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WrapMode {
+    /// The text should expand the `Ui` size when reaching its boundary.
+    Extend,
+
+    /// The text should wrap to the next line when reaching the `Ui` boundary.
+    Wrap,
+
+    /// The text should be elided using "…" when reaching the `Ui` boundary.
+    ///
+    /// Note that using [`TextWrapping`] and [`LayoutJob`] offers more control over the elision.
+    Truncate,
 }

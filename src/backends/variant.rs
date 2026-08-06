@@ -1,12 +1,15 @@
 use crate::frontend::TableFrontend;
 use crate::util::base_26;
-use egui::{Color32, ComboBox, DragValue, Id, Pos2, Response, Stroke, TextEdit, Ui, Widget};
+use egui::{
+    Color32, ComboBox, DragValue, Id, Label, Pos2, Response, RichText, Stroke, TextEdit,
+    TextWrapMode, Ui, Widget,
+};
 use indexmap::IndexMap;
 use rvariant::{Number, Variant, VariantTy};
 use std::collections::{HashMap, HashSet};
 use tabular_core::backend::{
     BackendColumn, CellMetadata, OneShotFlags, PersistentFlags, TableBackend, VisualColIdx,
-    VisualRowIdx,
+    VisualRowIdx, WrapMode,
 };
 use tabular_core::{CellCoord, ColumnUid, RowUid};
 
@@ -208,6 +211,25 @@ impl VariantBackend {
     pub fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
+
+    fn wrap_label(&self, coord: CellCoord, text: RichText) -> Label {
+        let label = Label::new(text);
+        let wrap_mode = self
+            .cell_metadata
+            .get(&coord)
+            .map(|m| m.common.wrap_mode)
+            .flatten();
+        if let Some(wrap_mode) = wrap_mode {
+            let wrap_mode = match wrap_mode {
+                WrapMode::Extend => TextWrapMode::Extend,
+                WrapMode::Wrap => TextWrapMode::Wrap,
+                WrapMode::Truncate => TextWrapMode::Truncate,
+            };
+            label.wrap_mode(wrap_mode)
+        } else {
+            label
+        }
+    }
 }
 
 impl TableBackend for VariantBackend {
@@ -381,13 +403,13 @@ impl TableFrontend for VariantBackend {
                 ui.checkbox(&mut v, "");
             }
             Variant::Str(v) => {
-                ui.colored_label(color, v);
+                ui.add(self.wrap_label(coord, RichText::new(v).color(color)));
             }
             Variant::StrList(list) => {
                 for (idx, v) in list.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.monospace(format!("{idx}:"));
-                        ui.colored_label(color, v);
+                        ui.add(self.wrap_label(coord, RichText::new(v).color(color)));
                     });
                 }
             }
@@ -395,7 +417,7 @@ impl TableFrontend for VariantBackend {
             //
             // }
             other => {
-                ui.colored_label(color, other.to_string().as_str());
+                ui.add(self.wrap_label(coord, RichText::new(other.to_string()).color(color)));
             }
         }
         if is_skipped {
