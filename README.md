@@ -34,6 +34,7 @@ TODO: Add web demo.
 * [x] Disable/enable rows and columns (show a hatch pattern when disabled).
 * [x] Change a column type and try to turn data into requested type (VariantBackend, only from code now).
 * [x] Derive macro to show Vec<UserRowStruct> as table.
+* [ ] Improve drag&drop, like on DK + preserve widths
 
 ## Non-goals
 
