@@ -13,12 +13,12 @@ impl Default for SimpleApp {
     fn default() -> Self {
         let mut backend = VariantBackend::new([
             (
-                "Name".into(),
+                "Name",
                 VariantTy::Str,
                 Some(Variant::Str("Default name".into())),
             ),
             (
-                "Count".into(),
+                "Count",
                 VariantTy::Number(NumberTy::U32),
                 Some(Variant::Number(Number::U32(0))),
             ),
