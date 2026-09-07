@@ -14,7 +14,7 @@ members = ["demos/*", "tabular_core", "tabular_derive", "tests"]
 version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/romixlab/egui_tabular"
-license = "MIT,Apache-2.0"
+license = "MIT OR Apache-2.0"
 authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 
 [workspace.dependencies]
