@@ -47,14 +47,14 @@ impl Default for DeriveRowApp {
 }
 
 impl eframe::App for DeriveRowApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("MenuBar").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("MenuBar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.viewer
                 .show(&mut self.backend, &mut self.config, None, ui, ui.id());
         });
@@ -62,10 +62,8 @@ impl eframe::App for DeriveRowApp {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn main() {
-    use eframe::App;
-
-    eframe::run_simple_native(
+fn main() -> eframe::Result {
+    eframe::run_native(
         "Derive TabularRow Demo",
         eframe::NativeOptions {
             // default_theme: eframe::Theme::Dark,
@@ -73,14 +71,8 @@ fn main() {
 
             ..Default::default()
         },
-        {
-            let mut app = DeriveRowApp::default();
-            move |ctx, frame| {
-                app.update(ctx, frame);
-            }
-        },
+        Box::new(|_cc| Ok(Box::new(DeriveRowApp::default()))),
     )
-    .unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]

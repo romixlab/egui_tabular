@@ -22,7 +22,7 @@ pub fn detect_encoding<R: Read + Seek>(
     rdr.seek(SeekFrom::Start(0))?;
     let mut buf = Vec::with_capacity(MAX_CHUNK_SIZE);
     let mut read = 0;
-    let mut detector = chardetng::EncodingDetector::new();
+    let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
     loop {
         let n = rdr.read(&mut buf)?;
         if n == 0 {
@@ -37,7 +37,7 @@ pub fn detect_encoding<R: Read + Seek>(
         }
     }
 
-    let encoding = detector.guess(None, true);
+    let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
     Ok(encoding)
 }
 
