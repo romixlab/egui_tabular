@@ -2,6 +2,10 @@ TODO: Add crates and docs badge
 
 # Customizable egui table viewer and editor.
 
+![Crates.io Version](https://img.shields.io/crates/v/egui_tabular)
+
+<img align="right" src="https://github.com/romixlab/cnt/blob/main/assets/logo.png?raw=true" alt="logo"/>
+
 Fast and responsive table viewer and editor, that only shows visible rows. Data backend is fully generic,
 allowing implementations based on vectors, files, databases and other data structures.
 
@@ -66,3 +70,9 @@ Experimental — many of the essential features are implemented, but documentati
 This project borrows some ideas from the great [egui-data-table](https://github.com/kang-sw/egui-data-table).
 Check it out if you don't need CSV/XLS import with column mapping or want to show some data based on a vector.
 The idea behind TableBackend trait in this crate is to allow more advanced data retrieval, for example from a database.
+
+## Compatible version with egui
+
+Version | egui
+--- | ---
+0.1 | 0.33

@@ -1,37 +1,45 @@
+
 [package]
 name = "egui_tabular"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Customizable egui table viewer and editor"
 
 [workspace]
-members = [
-    "tabular_core",
-    "tabular_derive",
-    "demos/*", "tests",
-]
+members = ["demos/*", "tabular_core", "tabular_derive", "tests"]
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/romixlab/egui_tabular"
+license = "MIT,Apache-2.0"
+authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 
 [workspace.dependencies]
-rvariant = { path = "../rvariant", features = ["serde"] }
-strum = { version = "0.28", features = ["derive"] }
-egui = { version = "0.33" }
 eframe = { version = "0.33", features = ["serde", "persistence"] }
+egui = { version = "0.33" }
+egui_tabular = { path = ".", version = "0.1" }
+rvariant = { path = "../rvariant", features = ["serde"], version = "0.2" }
+strum = { version = "0.28", features = ["derive"] }
+tabular_core = { version = "0.1", path = "./tabular_core" }
+tabular_derive = { version = "0.1", path = "./tabular_derive" }
 
 [dependencies]
+chardetng = "0.1"
+csv = "1.3"
 egui.workspace = true
 egui_extras = { version = "0.33", features = ["serde"] }
-#egui-modal = { version = "0.6" }
-#egui-phosphor = { version = "0.7", features = ["fill"] }
-itertools = "0.14"
-rfd = "0.17"
-log = "0"
-serde = { version = "1", features = ["derive"] }
-csv = "1.3"
-strum = { workspace = true }
-tap = "1.0"
-tabular_core = { path = "./tabular_core" }
-tabular_derive = { path = "./tabular_derive" }
-chardetng = "0.1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"
-rvariant = { workspace = true }
 indexmap = "2"
+itertools = "0.14"
+log = "0"
+rfd = "0.17"
+rvariant = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+strum = { workspace = true }
+tabular_core = { version = "0.1", path = "./tabular_core" }
+tabular_derive = { version = "0.1", path = "./tabular_derive" }
+tap = "1.0"

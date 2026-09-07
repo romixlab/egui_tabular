@@ -1,9 +1,13 @@
 [package]
 name = "tabular_core"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core tabular data types used in egui_tabular"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
 rvariant = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
 strum = { workspace = true }
