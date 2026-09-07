@@ -19,7 +19,7 @@ authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 [workspace.dependencies]
 eframe = { version = "0.36", features = ["serde", "persistence"] }
 egui = { version = "0.36" }
-egui_tabular = { path = ".", version = "0.1" }
+egui_tabular = { path = ".", version = "0.2" }
 rvariant = { path = "../rvariant", features = ["serde"], version = "0.2" }
 strum = { version = "0.28", features = ["derive"] }
 tabular_core = { version = "0.1", path = "./tabular_core" }
@@ -39,6 +39,6 @@ rfd = "0.17"
 rvariant = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 strum = { workspace = true }
-tabular_core = { version = "0.1", path = "./tabular_core" }
-tabular_derive = { version = "0.1", path = "./tabular_derive" }
+tabular_core = { version = "0.2", path = "./tabular_core" }
+tabular_derive = { version = "0.2", path = "./tabular_derive" }
 tap = "1.0"
