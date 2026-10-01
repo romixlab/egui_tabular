@@ -35,7 +35,8 @@ Cargo workspace (edition 2024):
   (`src/frontend.rs`), `VariantBackend` (`src/backends/variant.rs`), CSV import (`src/importers/`),
   utilities (`src/util.rs`).
 - `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` — runnable examples.
-- `tests/` — derive macro compile test.
+- `tests/ui/` — headless UI tests (egui_kittest), see [UI tests](#ui-tests).
+- `tests/Cargo.toml` + `tests/src/` — the `tests` package: derive macro compile test.
 
 FEATURES.md has a more detailed layout table.
 
@@ -47,14 +48,81 @@ FEATURES.md has a more detailed layout table.
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace
+cargo test --test ui           # headless UI tests (~0.1 s, no GPU or display)
+cargo test --test ui -- --ignored   # known-bug repros; all of them must fail
 cargo run -p simple            # main interactive demo (10k rows, editable)
 cargo run -p derive_row        # derive macro demo
 cargo run -p csv_xls_import    # importer demo
 just dry-publish               # publish check (excludes demos/tests)
 ```
 
-UI behavior (editing, drag & drop, selection) can only be confirmed by running a demo. When you
-can't run the GUI, say so, and describe the manual check in the PR.
+UI behavior (selection, editing, keyboard, drag & drop, paste) is tested headlessly in `tests/ui/`.
+Prefer adding a test there over a manual check. Only what the tests can't observe (visuals,
+animation feel, real clipboard and window integration) still needs a demo run: when you can't run
+the GUI, say so, and describe the manual check in the PR.
+
+## UI tests
+
+`tests/ui/` drives a real `TableView` + `VariantBackend` with
+[egui_kittest](https://docs.rs/egui_kittest). The harness runs egui frames without a window,
+injects input events and queries the AccessKit tree that egui builds every frame. Nothing is
+rendered and no screenshots are taken.
+
+### How it works
+
+- **Finding things.** Widgets are found by their AccessKit label: cell values, header names and row
+  numbers are `Label` nodes. `Table::grid(cols, rows)` fills every cell with its spreadsheet name
+  ("A1", "B2", ...) and names columns "A", "B", ..., so every cell can be found by its text.
+  `get_by_label` panics if there are zero **or several** matches, so keep texts unique. Cells
+  themselves have no label or role yet (role `Unknown`); empty cells can only be reached by
+  position (`Table::click_at`).
+- **Clicking.** `Node::click()` sends a real pointer move, press and release at the node's center,
+  so it goes through egui's normal hit testing, like a user's click. If a click on a label
+  doesn't reach the cell, the label is eating it (EDIT-10). `click_accesskit()` bypasses hit
+  testing; don't use it for table cells.
+- **Frames and time.** Every queued event runs in its own frame, and each frame advances time by
+  0.25 s. `Harness::run()` steps until nothing requests a repaint (eased widths, tooltips).
+  Because of the 0.25 s step, two queued clicks are never a double click: `Table::double_click_at`
+  puts both clicks into one frame's raw input. Drags need several pointer moves while pressed to
+  pass egui's drag threshold (`Table::drag`).
+- **Observing state.** Prefer what a user would see:
+  - Selection: `Table::copy()` presses Ctrl+C and returns the copied TSV, which the fixture
+    captures from the `CopyText` output command. `None` means nothing is selected.
+  - Editing: `Table::editor()` is the `TextInput` node; `editor_text()` is its value.
+  - Data: `Table::value(row, col)` reads the backend; `has(text)` checks what is displayed.
+  - Column order: `Table::header_order()` sorts header labels by x.
+
+  Don't add accessors to `TableView` just for tests. The view's state is being rewritten
+  (DESIGN-8), and black-box tests survive that.
+- **Keyboard needs the pointer over the table (SEL-4).** Clicks leave the pointer where they
+  clicked. `drop_at` and `pointer_away()` remove it, so call `hover(..)` before pressing keys
+  after a drag. `CTRL` sets both `ctrl` and `command`, as egui-winit does on Linux/Windows.
+- **A view picks up columns and rows from the backend's one-shot flags (FLAGS-1).** Give every
+  harness a fresh backend; to customize the harness (OS, size), use
+  `Table::grid_with(Harness::builder().with_os(..), ..)`.
+
+### Conventions
+
+- Go through the helpers in `tests/ui/fixture.rs`; add a helper when you need a new interaction.
+  When DESIGN-8 changes the API, only the fixture should need porting.
+- One behavior per test, named after it (`enter_commits`, `drag_header_reorders_columns`). Put it
+  in the module for its area: `selection`, `editing`, `keyboard`, `columns`, `paste`.
+- **Known bugs are executable.** A bug that can be reproduced through the UI gets a test asserting
+  the *intended* behavior, marked `#[ignore = "EDIT-4: one-line summary"]`, and the bug entry in
+  FEATURES.md gets a "Test" bullet pointing to it. Before committing, check with
+  `cargo test --test ui -- --ignored` that each ignored test fails at the assertion that shows
+  the bug, not earlier in setup. A repro that passes is wrong (or the bug is gone), and that's
+  worth finding out: two first drafts in this suite passed and showed that DND-3 and EDIT-4 are
+  narrower than first recorded.
+- Fixing a bug: write or un-ignore its test first, see it fail, fix, see it pass, then update
+  FEATURES.md.
+- A new feature or input change gets a test, alongside the keyboard/mouse table update.
+- Add pixel snapshots only for purely visual behavior that state assertions can't express. They
+  need the `snapshot` + `wgpu` features of egui_kittest, a GPU or software renderer, and checked-in
+  PNGs (`UPDATE_SNAPSHOTS=1` regenerates them), and they are sensitive to fonts and drivers. Keep
+  them small and mask what isn't under test (`Harness::mask`).
+- Debugging: `println!("{:#?}", t.h.root())` dumps the AccessKit tree. A failed `get_by_*` panics
+  with the tree as well.
 
 ## Conventions and pitfalls
 

@@ -98,6 +98,9 @@ fn cell_ui(
         clip.y_range()
     };
     ui.set_clip_rect(clip.intersect(Rect::from_x_y_ranges(rect.x_range(), y)));
+    // A selectable label senses clicks and drags on top of the cell, so clicking on text would
+    // not select the cell or drag a header (EDIT-10).
+    ui.style_mut().interaction.selectable_labels = false;
     if measure || clip_height {
         ui.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
     }

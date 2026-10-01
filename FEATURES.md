@@ -68,7 +68,8 @@ Severity for bugs: **crash** (panic), **data-loss** (user edits or data silently
 | `src/importers/` | `TabularImporter` (file picker + CSV options UI), `CsvImporter`, `RequiredColumns` (name/synonym mapping). |
 | `src/util.rs` | `base_26` column names, encoding detection, CSV export. |
 | `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` | Example apps. |
-| `tests/` | Compile test for the derive macro. |
+| `tests/ui/` | Integration test target `ui` of the root crate: headless UI tests (egui_kittest): selection, editing, keyboard, column drag & resize, paste. `fixture.rs` holds the harness helpers. Known bugs have `#[ignore = "<ID>: ..."]` repro tests. See AGENTS.md, "UI tests". |
+| `tests/Cargo.toml`, `tests/src/` | Workspace package `tests`: compile test for the derive macro. |
 
 The view is generic over `T: TableBackend + TableFrontend`. The backend owns data, column info and
 (today) the in-progress edit buffer. The view owns visual column order, column widths, the row
@@ -224,11 +225,13 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - Symptom: the edit is lost. Re-editing the same cell later shows the abandoned text, and the editor never gets focus.
 - Cause: `*r = SelectedRange::single_row(..)` replaces the selection and drops `editing`. The backend keeps the stale `cell_edit`. The next `show_cell_editor` for that coord sees `prev_coord == coord`, treats it as "not first pass", reuses the stale value and skips `request_focus()`.
 - Fix: route every exit through one `end_edit(commit)` ([DESIGN-2](#design-2-edit-lifecycle)).
+- Test (ignored, fails): `editing::row_number_click_commits_edit`.
 
 #### EDIT-2
 **Escape with the pointer outside the table doesn't cancel in the backend.** — *major*
 - Where: `show_body` Escape branch (`table_view.rs:547`) vs `handle_key_input_when_editing` (`interaction.rs:80-85`).
 - Cause: the `show_body` branch only sets `editing = None`; only the interaction handler calls `cancel_edit()`, and that handler runs only when the pointer is over the table. Same stale-buffer symptoms as EDIT-1.
+- Test (ignored, fails): `editing::escape_away_from_table_cancels_in_backend` (the re-opened editor shows the abandoned text).
 
 #### EDIT-3
 **Clicking outside the table, or Tab-ing focus away, leaves the editor open but unfocused.** — *major*
@@ -240,8 +243,9 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **Tab and `E` compute the edit coord from backend column order, not visual order.** — *data-loss*
 - Where: `handle_key_input_when_editing` (`interaction.rs:73`), `handle_selection_moves` (`interaction.rs:348`).
 - Cause: they call `data.col_uid(VisualColIdx(col))`, which indexes the backend's column list. The view renders `state.columns_ordered`, which differs after a column drag. For `VariantBackend`, `col_uid` also counts unused columns. For derived backends it always returns `None`, so Tab/E never work there.
-- Effect: the editor is drawn at the right visual cell (rendering matches positionally), but the stored coord is wrong. `VariantBackend::commit_cell_edit(coord)` requires `last_edited_coord == coord`, so the **edit is silently discarded**.
+- Effect: the editor is drawn at the right visual cell (rendering matches positionally), but the stored coord is wrong. `VariantBackend::commit_cell_edit(coord)` requires `last_edited_coord == coord`, so the **edit is silently discarded**. Enter still commits correctly (it uses the rendered coord); the loss happens when the edit is left by clicking another cell or by Tab, which commit the stored coord.
 - Fix: use `self.state.columns_ordered[col_idx]`; remove `TableBackend::col_uid` ([DESIGN-3](#design-3-tablebackendcol_uid-conflicts-with-view-owned-column-order)).
+- Test (ignored, fails): `editing::e_edits_visual_column_after_reorder`, `editing::tab_edits_visual_column_after_reorder`.
 
 #### EDIT-5
 **Editor is taller than the row: rows jump or the editor is clipped.** — *major (visual)*
@@ -270,6 +274,7 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - `handle_selection_moves` commits an edit on arrow keys, but it only runs when not editing (dead code, `interaction.rs:322`).
 - `resp.double_clicked_by(..) {}` is an empty branch (`table_view.rs:580`).
 - No Enter/F2/type-to-edit.
+- Test (ignored, fails): `editing::f2_starts_editing`.
 
 ### Column drag & drop
 
@@ -277,11 +282,13 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **Drop swaps columns instead of moving.** — *major (UX)*
 - Where: `TableView::swap_columns` (`table_view.rs:376`).
 - Dropping A on D in `A B C D` yields `D B C A`. Expected `B C D A` (or insert-before semantics with an insertion marker).
+- Test (ignored, fails): `columns::drag_header_moves_column`.
 
 #### DND-3
-**`SelectedRange::swap_col` is a no-op.** — *major*
+**`SelectedRange::swap_col` is a no-op when the selection is in the drop-target column.** — *major*
 - Where: `state.rs:122-133`.
-- Cause: the first `if` sets `col_start = col2`, then the second `if self.col_start == col2` immediately sets it back to `col1`. Needs `else if`. The selection (and an in-progress edit) ends up on the wrong column.
+- Cause: the first `if` sets `col_start = col2`, then the second `if self.col_start == col2` immediately sets it back to `col1`. Needs `else if`. `swap_columns` passes the drop target as `col1`, so only a selection in the target column is affected; a selection in the dragged column follows it (`columns::selection_follows_dragged_column`). The selection (and an in-progress edit) ends up on the wrong column.
+- Test (ignored, fails): `columns::selection_follows_drop_target_column`.
 
 #### DND-4
 **Drop-target highlight hides the header text and highlights the source column.** — *minor (visual)*
@@ -303,26 +310,31 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **Row selection is one column too wide.** — *minor*
 - Where: `SelectedRange::single_row` and `stretch_multi_row` set `col_end = col_count` (`state.rs:73`, `:161`).
 - Effect: Ctrl+C on a row selection appends an extra `\t` per line; paste size matching is off by one.
+- Test (ignored, fails): `selection::row_selection_copies_exactly_the_row`.
 
 #### SEL-2
 **Arrow keys panic with zero rows.** — *crash (debug)*
 - Where: `move_down`/`move_right` compute `count - 1` (`state.rs:190`, `:210`).
 - Repro: select a cell, use tool header menu → Clear (if it doesn't panic first, see VIEW-1), press ↓.
 - Cause: the selection is never validated or cleared when the row/column set changes.
+- Test (ignored, fails): `keyboard::arrows_with_zero_rows_dont_panic`.
 
 #### SEL-3
 **Shift-extend has no anchor.** — *minor (UX)*
 - `stretch_to`, and `move_*` with `expand`, only grow the bounding box. You can't shrink a selection with Shift+arrows or Shift+click.
+- Test (ignored, fails): `selection::shift_click_can_shrink_selection`.
 
 #### SEL-4
 **Keyboard and paste handling depend on mouse hover, not focus.** — *major*
 - Where: `TableView::show` (`pointer_over_table`).
 - Effect: with the pointer over the table, typing `n` in another TextEdit appends rows, `e` starts editing, pasting into another field also pastes into the table, and Ctrl+C copies the table. Moving the mouse away disables table navigation.
 - Fix: track table focus (focusable table response or a "table active" flag set on click). Also skip handling when `ctx.wants_keyboard_input()` and the focused widget isn't ours.
+- Test (ignored, fails): `keyboard::keyboard_works_without_pointer_over_table`.
 
 #### SEL-5
 **Copy uses `modifiers.ctrl`.** — *minor*
 - `interaction.rs:15`. Cmd+C on macOS doesn't work (egui issue #4065). Prefer handling `Event::Copy`.
+- Test (ignored, fails): `selection::cmd_c_copies_on_mac`.
 
 ### Paste
 
@@ -336,6 +348,7 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - `text.split('\n')` (`interaction.rs:104`). Excel/LibreOffice always end with `\n`, so every such paste is "N+1 rows with holes" and opens the dialog.
 - Quoted cells containing tabs/newlines are split incorrectly. `trim()` also strips meaningful whitespace.
 - Fix: parse with `csv::ReaderBuilder` (`\t` delimiter, flexible) and drop a trailing empty record.
+- Test (ignored, fails): `paste::paste_with_trailing_newline`.
 
 #### PASTE-3
 **"Create columns" can panic.** — *crash*
@@ -403,6 +416,7 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 #### BACKEND-1
 **`VariantBackend::set_read_only` has no effect.** — *major*
 - It writes `self.read_only`, which nothing reads; the view checks `persistent_flags().is_read_only`.
+- Test (ignored, fails): `editing::read_only_table_does_not_edit`.
 
 #### BACKEND-2
 **`VariantBackend::col_uid` indexes all columns.** — *minor*
@@ -946,6 +960,7 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
+| EDIT-10 | pending | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom `TableFrontend` UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 
 ---
@@ -961,3 +976,8 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
   format: bold one-line summary + severity; Where / Symptom / Cause / Fix bullets as known.
 - **New prefixes:** add a heading under Known bugs.
 - Keep claims verifiable: say how a bug was confirmed (code reading, repro, test).
+- **UI tests:** a known bug that can be reproduced through the UI gets a test in `tests/ui/` that
+  asserts the intended behavior, marked `#[ignore = "<ID>: summary"]`, and the bug entry links it
+  with a "Test" bullet. Fixing the bug means removing the `ignore`. Check with
+  `cargo test --test ui -- --ignored` that every ignored test still fails; one that passes is either
+  fixed or a broken repro.
