@@ -1,0 +1,65 @@
+# Working on egui_tabular
+
+Guidance for AI agents and contributors. Read this before changing code.
+
+## FEATURES.md is the source of truth
+
+[FEATURES.md](FEATURES.md) records every feature and its status, every known bug (with a stable ID
+such as `EDIT-4` or `DND-3`), the planned design rework, and the roadmap.
+
+- **Read the relevant sections before starting work.** A "new" bug is often already recorded, and
+  the planned design (`DESIGN-*`) may change how a fix should be done.
+- **Keep it updated in the same commit as the code change.** This is required, not optional:
+  - Fixed a bug → move it to "Fixed issues" with the commit hash, and update inventory/roadmap rows that link to it.
+  - Added or changed a feature → update its inventory row and status; update the keyboard/mouse table if input behavior changed.
+  - Found a bug you aren't fixing → add it with the next free ID for its prefix.
+  - Never renumber or reuse IDs.
+- Reference bug IDs in commit messages (e.g. `fix(view): resync row heights on row count change (VIEW-1)`).
+- README.md is the public summary; when a user-visible feature or shortcut changes, update it too,
+  following FEATURES.md.
+
+## Repository layout
+
+Cargo workspace (edition 2024):
+
+- `tabular_core/` — egui-free core: `TableBackend` trait, uid/coord types, flags, cell metadata.
+- `tabular_derive/` — `#[derive(TabularRow)]` proc macro.
+- `src/` — the `egui_tabular` crate: `TableView` (`src/table_view*`), `TableFrontend`
+  (`src/frontend.rs`), `VariantBackend` (`src/backends/variant.rs`), CSV import (`src/importers/`),
+  utilities (`src/util.rs`).
+- `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` — runnable examples.
+- `tests/` — derive macro compile test.
+
+FEATURES.md has a more detailed layout table and explains which modules are dead code (not in any
+`mod` tree): don't edit those expecting an effect.
+
+`rvariant` is a path dependency on `../rvariant`; a sibling checkout is required to build.
+
+## Commands
+
+```sh
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace
+cargo run -p simple            # main interactive demo (10k rows, editable)
+cargo run -p derive_row        # derive macro demo
+cargo run -p csv_xls_import    # importer demo
+just dry-publish               # publish check (excludes demos/tests)
+```
+
+UI behavior (editing, drag & drop, selection) can only be confirmed by running a demo. When you
+can't run the GUI, say so, and describe the manual check in the PR.
+
+## Conventions and pitfalls
+
+- Match the surrounding code style; run `cargo fmt`.
+- egui and egui_extras versions are pinned to the same minor version (see the README compatibility table).
+- The view owns visual column order (`State::columns_ordered`). Don't map visual indices to columns
+  through the backend (`TableBackend::col_uid`), which is the cause of EDIT-4 and is slated for removal.
+- Editing state currently has two owners (view `SelectedRange.editing` and backend edit buffer).
+  Any code path that leaves edit mode must commit or cancel in the backend too (see DESIGN-2).
+- Row heights are synced from `OneShotFlags::row_set_updated`; mutating rows inside `show()`
+  (menus, key handlers) can desync them (VIEW-1). Never `unwrap()` `row_uid()`.
+- Avoid usize underflow in selection math (`count - 1` with empty tables).
+- Breaking changes to `TableBackend`/`TableFrontend` should follow the plan in FEATURES.md
+  (DESIGN-1/3) rather than introducing new ad-hoc flags.
