@@ -1,8 +1,10 @@
+use super::TableEvent;
 use super::layout::{ColumnWidths, RowLayout};
+use crate::commands::TableCommand;
 use egui::Rect;
+use rvariant::Variant;
 use std::collections::HashMap;
-use tabular_core::backend::BackendColumn;
-use tabular_core::{CellCoord, ColumnUid};
+use tabular_core::{CellCoord, ColumnInfo, ColumnUid, Revision};
 
 pub(super) struct State {
     pub(super) rows: RowLayout,
@@ -12,8 +14,15 @@ pub(super) struct State {
     /// Header and body area of the previous frame, for mouse wheel hit testing.
     pub(super) table_rect: Option<Rect>,
     pub(super) columns_ordered: Vec<ColumnUid>,
-    pub(super) columns: HashMap<ColumnUid, BackendColumn>,
+    pub(super) columns: HashMap<ColumnUid, ColumnInfo>,
     pub(super) selected_range: Option<SelectedRange>,
+    /// Value of the cell being edited, owned by the view until committed or cancelled.
+    pub(super) edit: Option<EditBuffer>,
+    /// Model revision the columns and rows were last synced with.
+    pub(super) revision: Option<Revision>,
+    /// Changes to apply to the model, outside of rendering.
+    pub(super) commands: Vec<TableCommand>,
+    pub(super) events: Vec<TableEvent>,
 
     pub(crate) pasting_block_width: usize,
     pub(crate) pasting_block_with_holes: bool,
@@ -34,6 +43,10 @@ impl Default for State {
             columns_ordered: Vec::new(),
             columns: Default::default(),
             selected_range: None,
+            edit: None,
+            revision: None,
+            commands: vec![],
+            events: vec![],
             pasting_block_width: 0,
             pasting_block_with_holes: false,
             about_to_paste_rows: vec![],
@@ -43,6 +56,13 @@ impl Default for State {
             create_adhoc_cols_on_paste: false,
         }
     }
+}
+
+pub(super) struct EditBuffer {
+    pub(super) coord: CellCoord,
+    pub(super) value: Variant,
+    /// The editor gets focus on its first frame.
+    pub(super) first_frame: bool,
 }
 
 /// All indices are from 0 to row or column count currently in view
@@ -80,7 +100,7 @@ impl SelectedRange {
             row_start: row_idx,
             row_end: row_idx,
             col_start: 0,
-            col_end: col_count,
+            col_end: col_count.saturating_sub(1),
             editing: None,
         }
     }
@@ -168,7 +188,7 @@ impl SelectedRange {
             self.row_end = row_idx;
         }
         self.col_start = 0;
-        self.col_end = col_count;
+        self.col_end = col_count.saturating_sub(1);
     }
 
     pub fn contains(&self, row_idx: usize, col_idx: usize) -> bool {
@@ -240,5 +260,28 @@ impl State {
         self.selected_range
             .map(|r| r.editing.is_some())
             .unwrap_or(false)
+    }
+
+    /// Queue the edited value of `coord` to be written to the model and leave edit mode.
+    pub(super) fn commit_edit(&mut self, coord: CellCoord) {
+        if let Some(edit) = self.edit.take_if(|e| e.coord == coord) {
+            self.commands.push(TableCommand::Set {
+                coord,
+                value: edit.value,
+            });
+        }
+        if let Some(r) = &mut self.selected_range
+            && r.editing() == Some(coord)
+        {
+            r.set_editing(None);
+        }
+    }
+
+    /// Drop the edit buffer if its cell is no longer being edited.
+    pub(super) fn end_stale_edit(&mut self) {
+        let editing = self.selected_range.and_then(|r| r.editing());
+        if let Some(edit) = self.edit.take_if(|e| Some(e.coord) != editing) {
+            self.events.push(TableEvent::EditCancelled(edit.coord));
+        }
     }
 }

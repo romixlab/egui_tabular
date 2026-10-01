@@ -1,3 +1,4 @@
+use crate::backends::variant::ColumnDef;
 use rvariant::{NumberTy, Variant, VariantTy};
 use tabular_core::ColumnUid;
 
@@ -38,6 +39,17 @@ impl RequiredColumn {
             synonyms: vec![],
             ty: VariantTy::Number(NumberTy::U32),
             default: None,
+        }
+    }
+
+    /// A required column of a [`VariantTable`](crate::VariantTable).
+    pub fn column_def(&self) -> ColumnDef {
+        let def = ColumnDef::new(self.name.clone(), self.ty.clone())
+            .synonyms(self.synonyms.clone())
+            .required(true);
+        match &self.default {
+            Some(default) => def.default(default.clone()),
+            None => def,
         }
     }
 

@@ -113,63 +113,69 @@ The view must degrade per column, never panic or show broken UI. Features that n
 
 | Path | Purpose |
 |------|---------|
-| `tabular_core/` | egui-independent core types: `TableBackend` trait, `ColumnUid`, `RowUid`, `CellCoord`, `BackendColumn`, `PersistentFlags`, `OneShotFlags`, `CellMetadata`, `Rgb`, `WrapMode`, `CsvImporterConfig`. Re-exports `rvariant::{Variant, VariantTy}`. |
-| `tabular_derive/` | `#[derive(TabularRow)]` proc macro: turns `Vec<Row>` into a read-only backend + frontend. |
-| `src/table_view.rs` | `TableView::show()`: header and body layout (own cell layout, no egui_extras), column DnD and resize handles. |
+| `tabular_core/` | egui-independent core: `TableModel` trait, `Revision`, `Capabilities`, `ColumnInfo`, `ModelError`, `RowPosition`, `ColumnUid`, `RowUid` (u64), `CellCoord`, `CellMetadata`, `CellLevel`, `Rgb`, `WrapMode`, `CsvImporterConfig`. Re-exports `rvariant::{Variant, VariantTy}`. |
+| `tabular_derive/` | `#[derive(TabularRow)]` proc macro: turns `Vec<Row>` into a read-only `<Row>Table` model. |
+| `src/table_view.rs` | `TableView::show()`, `TableViewOptions`, `TableViewOutput`, `TableEvent`: model sync by revision, command application, header and body layout (own cell layout, no egui_extras), column DnD and resize handles. |
 | `src/table_view/layout.rs` | `RowLayout` (anchor-based vertical scrolling, row order, row heights by `RowUid`) and `ColumnWidths` (by column). Unit-tested. |
 | `src/table_view/scroll_bar.rs` | Row-proportional vertical scroll bar. |
 | `src/table_view/interaction.rs` | Keyboard handling, copy, paste (+ paste modal), selection moves. |
-| `src/table_view/state.rs` | `State` and `SelectedRange` (selection + editing coord). |
+| `src/table_view/state.rs` | `State` (incl. the edit buffer, command queue, pending events) and `SelectedRange` (selection + editing coord). |
 | `src/table_view/tool_column.rs` | Left "tool" column: row numbers and context menus. |
 | `src/table_view/config.rs` | `TableViewConfig` (serializable view settings). |
-| `src/frontend.rs` | `TableFrontend` trait: cell view/editor UI, colors, tooltips, corners. |
-| `src/backends/variant.rs` | `VariantBackend`: in-memory `HashMap<CellCoord, Variant>` backend + frontend. |
+| `src/cell_ui.rs` | `CellUi` trait (row builder `show_row`, `show_cell`, `text`, `begin_edit`, `show_editor`, `header_ui`), `RowCells`, `EditorResponse`, `VariantCellUi`, built-in viewer and editor. |
+| `src/commands.rs` | `TableCommand` (view-originated changes) and `apply`, which returns the inverse. Unit-tested. |
+| `src/backends/variant.rs` | `VariantTable`: in-memory `HashMap<CellCoord, Variant>` model, `ColumnDef`. |
 | `src/importers/` | `TabularImporter` (file picker + CSV options UI), `CsvImporter`, `RequiredColumns` (name/synonym mapping). |
-| `src/util.rs` | `base_26` column names, encoding detection, CSV export. |
+| `src/util.rs` | `base_26` column names, encoding detection, cell text for copy/export, CSV export. |
 | `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` | Example apps. |
-| `tests/ui/` | Integration test target `ui` of the root crate: headless UI tests (egui_kittest): selection, editing, keyboard, column drag & resize, paste. `fixture.rs` holds the harness helpers. Known bugs have `#[ignore = "<ID>: ..."]` repro tests. See AGENTS.md, "UI tests". |
-| `tests/Cargo.toml`, `tests/src/` | Workspace package `tests`: compile test for the derive macro. |
+| `tests/ui/` | Integration test target `ui` of the root crate: headless UI tests (egui_kittest): selection, editing, keyboard, column drag & resize, paste, model contract (custom models, row builder, events). `fixture.rs` holds the harness helpers, generic over model and cell UI. Known bugs have `#[ignore = "<ID>: ..."]` repro tests. See AGENTS.md, "UI tests". |
+| `tests/Cargo.toml`, `tests/src/` | Workspace package `tests`: derive macro tests (values, format, tuple structs, visibility). |
 
-The view is generic over `T: TableBackend + TableFrontend`. The backend owns data, column info and
-(today) the in-progress edit buffer. The view owns visual column order, column widths, the row
-display order with the scroll anchor and row heights, selection, and paste state.
+`TableView::show(ui, &mut model, &mut cell_ui, &mut config)` works with any `M: TableModel` and
+`C: CellUi<M>`. The model owns data and column info and bumps revision counters. The view owns
+visual column order, column widths, the row display order with the scroll anchor and row heights,
+selection, the edit buffer, and paste state. It changes the model only through queued
+`TableCommand`s, applied outside of drawing.
 
 ---
 
 ## Feature inventory
 
-### Core data model / backend trait
+### Core data model (`TableModel`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generic `TableBackend` trait (rows/cols by uid, visual index → uid mapping) | ✅ done | See [DESIGN-3](#design-3-tablebackendcol_uid-conflicts-with-view-owned-column-order) for `col_uid`. |
-| `get` / `set` cells as `Variant` | ✅ done | Optional; copy and CSV export depend on `get`. |
-| Create row / create column | ✅ done | `VariantBackend` names new columns `A`, `B`, ... via `base_26`. |
+| Generic egui-free `TableModel` trait (rows/cols by uid, natural order only) | ✅ done | [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), step 1. The view does all visual ordering. |
+| `get` / `set` cells as `Variant` | ✅ done | Both optional. Copy and export fall back to `CellUi::text` without `get`. |
+| Create row (append or at a position) / create column | ✅ done | `RowPosition`. `VariantTable` names new columns `A`, `B`, ... via `base_26`. |
+| Remove rows / remove columns | 🚧 partial | Model methods, capabilities and commands exist (used as undo inverses); no UI yet (roadmap step 5). |
 | Row / column skipping (strike-through, excluded from export) | 🐛 buggy | Skipped columns are still exported ([EXPORT-3](#export-3)). |
-| Cell metadata: background color, corner triangle, multiple tooltips, wrap mode | ✅ done | `set_metadata(coord, meta, merge)`. |
-| Change/flag notification (`PersistentFlags`, `OneShotFlags`) | 🐛 buggy | Error-prone; see [DESIGN-1](#design-1-flags-system), [FLAGS-*](#flags-and-change-notification). |
-| Read-only tables | 🐛 buggy | `VariantBackend::set_read_only` has no effect ([BACKEND-1](#backend-1)); several buttons ignore read-only ([VIEW-4](#view-4)). |
-| Remote/lazy backends | 💡 idea | The never-called `reload`, `poll`, `commit_all`, `commit_immediately` stubs were removed in step 0. Server-side sorting has a planned hook ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"). |
-| Column "used" vs "available" | 🚧 partial | `used_columns()` exists, but `VariantBackend` doesn't override it. `use_column` (a no-op) was removed in step 0. DESIGN-8 folds this into `ColumnInfo::is_used`. |
-| Undo / redo | 📋 planned | Command `apply` returns the inverse command from the first implementation ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Command queue"). |
+| Cell metadata: semantic level (background), corner triangle, multiple tooltips, wrap mode | ✅ done | `TableModel::metadata`, drawn by the view; `CellLevel::{Info, Warning, Error, Changed, Custom}` map to theme colors. `VariantTable::set_metadata(coord, meta, merge)`. |
+| Change notification by revision counters (`Revision`) | ✅ done | Never consumed: any number of views and app code compare with their own last-seen copy. Replaced the flag system (FLAGS-1..5). |
+| Capabilities (`Capabilities`) | ✅ done | The view only offers what the model allows; `TableViewOptions::read_only` on top. |
+| Read-only tables | ✅ done | `VariantTable::set_read_only` and `TableViewOptions::read_only`. Skipping stays allowed. |
+| Remote/lazy models | 💡 idea | Server-side sorting has a planned hook (`sorted_rows`, [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"), added with sorting. |
+| Column "used" vs "available" | ✅ done | `ColumnInfo::is_used`, informational (shown in the header hover). The view shows all columns. |
+| Undo / redo | 🚧 partial | Every `TableCommand::apply` returns its inverse (unit-tested); no undo stack or UI yet (roadmap step 5). |
 | Sorting | ⬜ stub | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI and stability policy in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
 | Filtering | 📋 planned | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
-| Typed column type (`VariantTy`, or none for custom columns) | 📋 planned | Today `ty: String`, which the view can't use to pick an editor for empty cells, align numbers or compare. [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) amendment. |
-| Remove / rename columns, insert rows at a position | 📋 planned | Only append and create exist. New capabilities and commands in [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui). |
+| Typed column type (`VariantTy`, or none for custom columns) | ✅ done | `ColumnInfo::ty: Option<VariantTy>` + `type_label`. Picks the editor for empty cells. |
+| Rename columns | 📋 planned | Model method, capability and command come with the UI (roadmap step 5). |
 | Move rows (drag in the tool column) | 💡 idea | Needs a model-side order (`move_rows`), since the view's row order is otherwise natural or sorted. |
 | Hierarchical rows (expand a frame into decoded signals, group by) | 💡 idea | U3. Would be a view-side row-order stage after filter/sort; tree depth drawn in the tool column. |
-| Row uid contract (stable for a row's life, never reused) | 📋 planned | Not written down today; selection, scroll anchor and height cache rely on it. `RowUid` is `u32`, too small for long-running traces ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)). |
-| Batched value access for copy/export/sort | 📋 planned | Optional `TableModel::row_values` with a per-cell default ([DESIGN-10](#design-10-row-builder-for-cell-ui)). |
+| Row uid contract (stable for a row's life, never reused) | ✅ done | Documented on `TableModel`; `RowUid` is `u64`. `VariantTable::clear` no longer restarts uids at 0. Derived tables use row indices (documented). |
+| Batched value access for copy/export | ✅ done | `TableModel::row_values` with a per-cell default; copy and export call it once per row ([DESIGN-10](#design-10-row-builder-for-cell-ui)). |
 
-### `VariantBackend`
+### `VariantTable` and the built-in cell UI (`VariantCellUi`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| In-memory storage, column defaults applied on row insert | ✅ done | |
-| `turn_column_into(ty)` with conversion errors shown as orange cells + tooltip | ✅ done | Code-only API, no UI. |
-| Viewers: Str, StrList, Bool, Enum, numbers, others via `Display` | 🐛 buggy | Bool viewer is a live checkbox ([EDIT-7](#edit-7)). |
-| Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | 🚧 partial | No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). Enum doesn't commit on selection ([EDIT-6](#edit-6)). |
-| Column mapping choices (combo box above columns) | ✅ done | Stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`. |
+| In-memory storage, column defaults applied on row insert, `ColumnDef` | ✅ done | |
+| Values converted to the column type on `set` and insert (paste, import) | ✅ done | Text is parsed; blank text in a non-text column becomes `Empty`. Values that don't convert are kept and get a `Warning` level + tooltip (PASTE-5). |
+| `turn_column_into(ty)` with conversion errors shown as warning cells + tooltip | ✅ done | Code-only API, no UI. |
+| Viewers: Str, StrList, Bool (check mark), Enum, numbers, others via `Display` | ✅ done | Built-in `show_value`, the default of `CellUi::show_cell`. |
+| Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | 🚧 partial | Built-in `edit_value`, the default of `CellUi::show_editor`; Bool and Enum commit on change. No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). |
+| Column mapping choices (combo box above columns) | ✅ done | Choices in `TableViewOptions::column_mapping_choices`; selection stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`; `TableEvent::ColumnMappingChanged`. |
 | Date, SI values, currency viewers/editors | 📋 planned | |
 | Numbers edited as parsed text instead of `DragValue` | 📋 planned | `DragValue` in a grid changes values on an accidental drag ([EDIT-11](#edit-11)). Keep `DragValue` as an opt-in. |
 | Searchable enum editor | 📋 planned | ComboBox with a filter box for long enum lists. |
@@ -183,10 +189,10 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Custom cell UI with any egui widget | ✅ done | `TableFrontend::show_cell_view`; becomes `CellUi`. |
-| Row builder: one model lookup per row, cells filled by column ([DESIGN-10](#design-10-row-builder-for-cell-ui)) | 📋 planned | Today every cell re-queries the model. |
-| Models without `Variant` values (`get` optional), per-column degradation | 📋 planned | See the availability table in [Goals](#goals-use-cases-and-targets). Today `get` has a default but copy/export silently produce nothing. |
-| Text for custom cells (`CellUi::text`) for copy/export/find | 📋 planned | |
+| Custom cell UI with any egui widget | ✅ done | `CellUi`; cells get `&mut M` for interactive widgets. |
+| Row builder: one model lookup per row, cells filled by column ([DESIGN-10](#design-10-row-builder-for-cell-ui)) | ✅ done | `CellUi::show_row` + `RowCells::{cell, wants, level, tooltip}`. Tested: one lookup per visible row per frame; cells land in their columns after a move. |
+| Models without `Variant` values (`get` optional), per-column degradation | 🚧 partial | Rendering, selection, copy (via `CellUi::text`) work; such cells aren't editable. Header/menu hints for disabled features come with sort (DESIGN-11). |
+| Text for custom cells (`CellUi::text`) for copy/export | ✅ done | Find comes with DESIGN-13. |
 | Cheap append + front eviction (ring buffer traces) | 🚧 partial | Every row-set change collects all uids into a new `Vec` and compares prefixes (`RowLayout::sync`), so even appends are O(row count); appends then index only the new rows. Front eviction re-indexes everything. A trace that appends every frame pays O(row count) per frame. Planned `rows_log` ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)). |
 | Stick to bottom | 🚧 partial | See Table view; needs to be an option and to survive eviction. |
 | Scroll position kept while rows are evicted above | ✅ done | The anchor is a `RowUid`; if the anchored row itself is evicted the view stays at its index. |
@@ -194,7 +200,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Highlight changed values (flash that fades) | 📋 planned | `CellLevel::Changed` + fade in the view, or per-cell "changed at" in metadata. |
 | Pause / freeze display while data keeps coming | 💡 idea | View-side snapshot of `visible_rows` plus "N new rows" badge; app keeps receiving. |
 | Live data demo (simulated CAN bus trace + register map) | 📋 planned | `demos/live`; also the benchmark scenario. |
-| 64-bit `RowUid` | 📋 planned | A 1 kHz bus overflows `u32` in about 50 days, 8 kHz in under a week, and uids must never be reused. |
+| 64-bit `RowUid` | ✅ done | A 1 kHz bus would overflow `u32` in about 50 days, 8 kHz in under a week, and uids must never be reused. |
 
 ### Table view
 
@@ -208,12 +214,14 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Widths are keyed by `ColumnUid` but not persisted ([DND-5](#dnd-5)). |
 | Auto-sized columns | ✅ done | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
 | Column header: name, type, hover info (required/synonyms/used) | ✅ done | |
-| Column header context menu | 🚧 partial | Only "Skip" works. "Sort", "Hide" are stubs; "Add column" is only shown for sortable columns ([VIEW-5](#view-5)). |
-| Column drag & drop reorder | 🐛 buggy | Swaps instead of moves; widths, selection and order persistence broken ([DND-*](#column-drag--drop)). |
-| Tool column (row numbers, row context menu: append, skip) | ✅ done | |
+| Column header context menu | 🚧 partial | "Skip" and "Add column" work (offered per capabilities). "Sort", "Hide" are stubs ([VIEW-5](#view-5)). |
+| Column drag & drop reorder | 🐛 buggy | Swaps instead of moves; selection and order persistence broken ([DND-*](#column-drag--drop)). Reports `TableEvent::ColumnsReordered`. |
+| Tool column (row numbers, row context menu: append, skip) | ✅ done | `TableViewOptions::tool_column` hides it. |
 | Tool column header menu: Export CSV, Append row, Clear | 🐛 buggy | "Clear" has no confirmation ([VIEW-6](#view-6)). |
-| "No columns" state with "Create column" button | 🐛 buggy | Ignores read-only / creation support ([VIEW-4](#view-4)). |
-| Multiple tables in one parent `Ui` | ✅ done | All view ids derive from the `id` passed to `show`. |
+| "No columns" state with "Create column" button | ✅ done | Offered only if the model can create columns. |
+| Multiple tables in one parent `Ui` | ✅ done | All view ids derive from `TableViewOptions::id_salt` (salted with the parent `Ui`'s id). |
+| Several views over one model | ✅ done | Each view tracks the model's `Revision` itself (FLAGS-1). Tested. |
+| View output: `TableViewOutput { response, events }` | ✅ done | `TableEvent::{SelectionChanged, CellCommitted, EditCancelled, CommandFailed, ColumnMappingChanged, ColumnsReordered, RowsCreated, Message}`. |
 | Cell background colors / corner triangles / tooltips | ✅ done | |
 | Selection: single cell, rectangle, whole row, select all | 🐛 buggy | See [SEL-*](#selection-and-keyboard). |
 | Scroll selection into view on keyboard navigation | 🚧 partial | Vertical only (arrow keys). No horizontal reveal yet. |
@@ -225,31 +233,34 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Selected rows/columns highlighted in headers and row numbers | 📋 planned | [DESIGN-14](#design-14-look-and-feel). |
 | Active cell drawn separately from the selected range | 📋 planned | [DESIGN-14](#design-14-look-and-feel); folds in [VIEW-7](#view-7). |
 | Cell context menu (copy, cut, paste, clear, insert/delete row) | 📋 planned | Only the tool column and headers have menus. |
-| Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 📋 planned | Only getters are planned in DESIGN-8. Needed for "jump to error", "select imported row". DESIGN-8 amendment. |
+| Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 📋 planned | Roadmap step 2, with the uid-based selection. Needed for "jump to error", "select imported row". |
 | Find (Ctrl+F): highlight matches, next/previous | 📋 planned | Distinct from filtering; uses `get()`/`CellUi::text()`. [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
 | Hide columns and a column chooser to show them again | 📋 planned | `hidden_columns` is planned in config, but without a chooser hidden columns can't be restored. Chooser lives in the tool-column header menu. |
 | Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
-| Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Needs the new capabilities (DESIGN-8 amendment). |
+| Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
 | Long text ends with "…" and shows the full text on hover | 📋 planned | Text is clipped at the column edge today. [DESIGN-14](#design-14-look-and-feel). |
 | Alignment by column type (numbers right-aligned, tabular digits) | 📋 planned | Everything is left-aligned. Needs the typed column type. |
 | Density (padding, row height) and grid line settings | 📋 planned | `TableStyle`, [DESIGN-14](#design-14-look-and-feel). |
-| Semantic cell colors (info/warning/error/changed) that follow the theme | 📋 planned | `CellMetadata` uses fixed `Rgb`, unreadable in dark mode ([VIEW-11](#view-11)). |
+| Semantic cell colors (info/warning/error/changed) that follow the theme | ✅ done | `CellLevel`, mapped to `Visuals` colors by the view (VIEW-11). `Custom(Rgb)` doesn't pick text color by contrast yet (DESIGN-14). |
 | Selection status bar (count, sum, average) | 📋 planned | Optional footer. Count only without numeric values. |
-| Empty, loading and error states | 🚧 partial | "No columns" and "Add row" states exist ([VIEW-4](#view-4)). No loading state for lazy models (`CellState::Loading`, U5). |
-| User feedback for refused or failed actions | 📋 planned | Only logged today ([VIEW-10](#view-10)). Becomes `TableEvent::Message`, the app shows a toast. |
+| Empty, loading and error states | 🚧 partial | "No columns" and "Add row" states exist, per capabilities. No loading state for lazy models (`CellState::Loading`, U5). |
+| User feedback for refused or failed actions | ✅ done | `TableEvent::Message { level, text }` (paste without selection, paste the table can't take) and `TableEvent::CommandFailed`; the app shows them (VIEW-10). |
 | Striped rows, hover highlight | ✅ done | Odd rows use `faint_bg_color`, the hovered row `widgets.hovered.bg_fill`. |
 | Scroll to a newly appended row | ✅ done | `N`, "Append row" in the tool column menus and the "Add row" button. |
 | Visual state persistence (`TableViewConfig` is serde) | 🚧 partial | Column order and widths are not persisted ([DND-5](#dnd-5)). |
-| Custom column header UI (`TableFrontend::custom_column_ui`) | ✅ done | |
-| Per-column render config | 📋 planned | The never-called `TableFrontend::column_render_config` was removed in step 0. Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
+| Custom column header UI (`CellUi::header_ui`) | ✅ done | |
+| Per-column render config | 📋 planned | Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
+| Column order kept when the model's column set changes | ✅ done | Known columns keep the user's order, new ones are appended (`sync_model`). Not persisted yet ([DND-5](#dnd-5)). |
 
 ### Editing
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Click selected cell to edit; `E` to edit | 🐛 buggy | See [EDIT-*](#cell-editing). |
-| Enter commits, Escape cancels, Tab commits and edits next cell | 🐛 buggy | [EDIT-1](#edit-1) – [EDIT-4](#edit-4), [EDIT-6](#edit-6). |
+| Click selected cell to edit; `E` to edit | ✅ done | `E` is replaced by F2 in step 2 ([EDIT-9](#edit-9)). |
+| Enter commits, Escape cancels, Tab commits and edits next cell | 🐛 buggy | Global Enter ([EDIT-6](#edit-6)). The view owns the edit buffer and commits through a `TableCommand::Set`. |
+| Clicking another cell or a row number commits | ✅ done | EDIT-1. |
+| Editors commit on change (Bool, Enum) | ✅ done | `EditorResponse::commit`. |
 | Commit on focus loss / click outside | 📋 planned | [EDIT-3](#edit-3). |
 | Start editing by typing / Enter / F2 / double-click | 📋 planned | [EDIT-9](#edit-9). |
 | Delete / Backspace clears the selected cells | 📋 planned | Pushes one `Set { Empty }` per cell as one undoable command. Respects capabilities and skipped/read-only columns. |
@@ -264,7 +275,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Copy selection as TSV (Ctrl+C) | 🐛 buggy | Row selections add trailing tabs ([SEL-1](#sel-1)); uses `ctrl` not `command` ([SEL-5](#sel-5)). |
+| Copy selection as TSV (Ctrl+C) | 🐛 buggy | Uses `ctrl` not `command` ([SEL-5](#sel-5)). One `row_values` lookup per row; `CellUi::text` where the model has no value. |
 | Paste TSV block into selection | 🐛 buggy | See [PASTE-*](#paste). |
 | Paste into empty table creates columns and rows | ✅ done | |
 | Paste dialog for size mismatch (create rows, repeat fill, create columns) | 🐛 buggy | [PASTE-1](#paste-1) – [PASTE-4](#paste-4). |
@@ -272,7 +283,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Paste a 1×1 value, or a block that tiles the selection evenly, without a dialog | 📋 planned | Excel/Sheets fill the selection silently; the dialog is for real size mismatches only. |
 | Copy raw values (round-trip) rather than displayed text | 📋 planned | Decide per column: `get()` value via a canonical `to_string`, not the viewer's formatting (Qt's display vs. edit role). Custom cells use `CellUi::text()`. |
 | Copy with headers | 📋 planned | Option or a context menu entry. |
-| Report cells that failed to parse on paste | 📋 planned | Error metadata on the cell plus a summary `TableEvent::Message` (PASTE-5 follow-up). |
+| Report cells that failed to parse on paste | 🚧 partial | `VariantTable` marks them (`Warning` level + tooltip). A summary `TableEvent::Message` is still missing. |
 | Rich clipboard (HTML table) | 💡 idea | egui only exposes text today. |
 
 ### Import / export
@@ -282,7 +293,8 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | `TabularImporter` UI: file picker, reload, separator, header row, skip N rows | ✅ done | |
 | CSV import with auto separator detection | ✅ done | Counts `,` `\t` `;` in the first MiB. |
 | Encoding detection (chardetng) | 🐛 buggy | Never reads any bytes ([IMPORT-1](#import-1)). |
-| Required columns mapped by name/synonym (case-insensitive) | ✅ done | Header names are not trimmed ([IMPORT-4](#import-4)). |
+| Required columns mapped by name/synonym (case-insensitive) | ✅ done | Header names are not trimmed ([IMPORT-4](#import-4)). Values are converted by `VariantTable`; ones that don't convert are highlighted. |
+| `TabularImporter::show(config, ui) -> TableViewOutput`, `table()`/`table_mut()` | ✅ done | View options via `importer.table_view.options_mut()`. |
 | CSV without header row | 🐛 buggy | Last column dropped ([IMPORT-2](#import-2)). |
 | Ragged CSV (rows wider than header) | 🐛 buggy | Extra cells land in wrong columns ([IMPORT-3](#import-3)). |
 | Preview mode (`set_max_lines`) | ✅ done | |
@@ -294,10 +306,12 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generates `<Row>TabularBackend` with `new(Vec<Row>)`, read-only | 🐛 buggy | Struct is private ([DERIVE-2](#derive-2)). |
-| Column names from field names (Sentence case), type shown in header | ✅ done | |
-| `#[format = "..."]` per field | 🐛 buggy | Output wrapped in literal quotes ([DERIVE-1](#derive-1)). |
-| Copy / CSV export from derived tables | 📋 planned | `get()` not generated ([DERIVE-4](#derive-4)). |
+| Generates `<vis> struct <Row>Table` (a `TableModel`) with `new`, `data`, `data_mut`, read-only | ✅ done | Same visibility as the row struct. No egui in the generated code. Row uids are indices. |
+| Column names from field names (Sentence case; index for tuple structs), Rust type shown in header | ✅ done | |
+| Values: `Into<Variant>` when the field type has it, `Debug` text otherwise | ✅ done | Autoref dispatch in `egui_tabular::__derive`. |
+| `#[format = "..."]` per field | ✅ done | The value is the formatted text. |
+| Copy / CSV export from derived tables | ✅ done | `get()` and a one-lookup `row_values()` are generated. |
+| Column value types (`ColumnInfo::ty`) for derived tables | 📋 planned | Columns have `ty: None`, so sorting (step 2) needs a type for them. |
 
 ### Accessibility, internationalization and platforms
 
@@ -323,7 +337,7 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Click cell | — | Select cell. Commits the edit if another cell was being edited. |
 | Click selected cell | Not read-only | Enter edit mode. |
 | Shift+click cell | — | Grow selection bounding box (cannot shrink, [SEL-3](#sel-3)). |
-| Click / Shift+click tool column | — | Select row / extend row selection. Drops an in-progress edit ([EDIT-1](#edit-1)). |
+| Click / Shift+click tool column | — | Select row / extend row selection. Commits an in-progress edit. |
 | Right-click tool column / header | — | Context menus (see feature inventory). |
 | Drag column header | — | Swap with drop target ([DND-1](#dnd-1)). |
 | Drag column right edge | — | Resize the column (full table height is the handle). |
@@ -331,15 +345,15 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Mouse wheel | Pointer over table | Scroll rows; Shift+wheel scrolls horizontally. |
 | Drag / click scroll bar | — | Drag the thumb, or click the track to jump there. |
 | Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. Panics with 0 rows ([SEL-2](#sel-2)). |
-| `E` | Not editing, not read-only, single cell | Start editing. Wrong column after reorder ([EDIT-4](#edit-4)). |
-| `N` | Not editing, not read-only | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
+| `E` | Not editing, editable, single cell | Start editing. |
+| `N` | Not editing, rows can be created | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
 | Ctrl+A / Cmd+A | Not editing | Select all. |
 | Ctrl+C | Not editing | Copy TSV. Cmd+C on macOS doesn't work ([SEL-5](#sel-5)). |
-| Ctrl/Cmd+V | Not editing, not read-only | Paste. |
-| Enter | Editing | Commit. Also fires if Enter was pressed elsewhere ([EDIT-6](#edit-6)). |
-| Escape | Editing | Cancel edit. Doesn't clear the backend buffer if the pointer is outside the table ([EDIT-2](#edit-2)). |
+| Ctrl/Cmd+V | Not editing, editable | Paste. Without a selection: `TableEvent::Message`. |
+| Enter | Editing | Commit. Also fires if Enter was pressed elsewhere ([EDIT-6](#edit-6)). Bool and Enum editors commit on change. |
+| Escape | Editing | Cancel edit. |
 | Escape | Not editing | Clear selection. |
-| Tab | Editing | Commit, move right, edit. Wrong column after reorder ([EDIT-4](#edit-4)). |
+| Tab | Editing | Commit, move right, edit. |
 
 ### Planned input (target behavior)
 
@@ -373,38 +387,15 @@ run only while the table is active (focus-based, DESIGN-8).
 
 ### Cell editing
 
-The root cause of most of these is that edit state has **two owners**: the view's
-`SelectedRange.editing: Option<CellCoord>` and the backend's `VariantBackend.cell_edit:
-Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
-[DESIGN-2](#design-2-edit-lifecycle) for the fix.
-
-#### EDIT-1
-**Leaving edit mode via tool column or header click drops the edit without commit or cancel.** — *data-loss*
-- Where: `show_body`, tool column click handler (`table_view.rs:446-455`); `VariantBackend::show_cell_editor` (`variant.rs:445-512`).
-- Symptom: the edit is lost. Re-editing the same cell later shows the abandoned text, and the editor never gets focus.
-- Cause: `*r = SelectedRange::single_row(..)` replaces the selection and drops `editing`. The backend keeps the stale `cell_edit`. The next `show_cell_editor` for that coord sees `prev_coord == coord`, treats it as "not first pass", reuses the stale value and skips `request_focus()`.
-- Fix: route every exit through one `end_edit(commit)` ([DESIGN-2](#design-2-edit-lifecycle)).
-- Test (ignored, fails): `editing::row_number_click_commits_edit`.
-
-#### EDIT-2
-**Escape with the pointer outside the table doesn't cancel in the backend.** — *major*
-- Where: `show_body` Escape branch (`table_view.rs:547`) vs `handle_key_input_when_editing` (`interaction.rs:80-85`).
-- Cause: the `show_body` branch only sets `editing = None`; only the interaction handler calls `cancel_edit()`, and that handler runs only when the pointer is over the table. Same stale-buffer symptoms as EDIT-1.
-- Test (ignored, fails): `editing::escape_away_from_table_cancels_in_backend` (the re-opened editor shows the abandoned text).
+Since roadmap step 1 the view owns the edit buffer (`State::edit`); the backend-side buffer and
+the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifecycle of step 2
+([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Edit lifecycle").
 
 #### EDIT-3
 **Clicking outside the table, or Tab-ing focus away, leaves the editor open but unfocused.** — *major*
 - Where: `show_body`.
 - Cause: the editor response's `lost_focus()` is never checked. Keystrokes go nowhere until the user clicks back into the cell. With the pointer outside the table, Tab is handled by egui focus traversal instead of the table.
 - Fix: commit (or cancel, configurable) on `lost_focus()`.
-
-#### EDIT-4
-**Tab and `E` compute the edit coord from backend column order, not visual order.** — *data-loss*
-- Where: `handle_key_input_when_editing` (`interaction.rs:73`), `handle_selection_moves` (`interaction.rs:348`).
-- Cause: they call `data.col_uid(VisualColIdx(col))`, which indexes the backend's column list. The view renders `state.columns_ordered`, which differs after a column drag. For `VariantBackend`, `col_uid` also counts unused columns. For derived backends it always returns `None`, so Tab/E never work there.
-- Effect: the editor is drawn at the right visual cell (rendering matches positionally), but the stored coord is wrong. `VariantBackend::commit_cell_edit(coord)` requires `last_edited_coord == coord`, so the **edit is silently discarded**. Enter still commits correctly (it uses the rendered coord); the loss happens when the edit is left by clicking another cell or by Tab, which commit the stored coord.
-- Fix: use `self.state.columns_ordered[col_idx]`; remove `TableBackend::col_uid` ([DESIGN-3](#design-3-tablebackendcol_uid-conflicts-with-view-owned-column-order)).
-- Test (ignored, fails): `editing::e_edits_visual_column_after_reorder`, `editing::tab_edits_visual_column_after_reorder`.
 
 #### EDIT-5
 **Editor is taller than the row: rows jump or the editor is clipped.** — *major (visual)*
@@ -413,31 +404,30 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - Fix: default the minimum row height to `ui.spacing().interact_size.y`, and/or use frameless editors sized to the row.
 
 #### EDIT-6
-**Enter commit is global; discrete editors don't commit on change.** — *minor*
-- Where: `show_body` (`table_view.rs:544`).
-- Cause: `ui.input(|i| i.key_pressed(Key::Enter))` is checked regardless of which widget had focus. Choosing an item in the Enum ComboBox doesn't commit; the user must also press Enter.
-- Fix: commit on `resp.lost_focus() && enter`, and on `changed()` for Bool and Enum.
-
-#### EDIT-7
-**Bool cells render a live checkbox in view mode.** — *minor*
-- Where: `VariantBackend::show_cell_view` (`variant.rs:401-404`).
-- Cause: toggles a local copy, so it flickers and does nothing. It also swallows the click, so the cell isn't selected.
-- Fix: draw a disabled checkbox or a glyph.
+**Enter commit is global.** — *minor*
+- Where: `show_body`.
+- Cause: `cell.input(|i| i.key_pressed(Key::Enter))` is checked regardless of which widget had focus.
+- Fix: commit on `resp.lost_focus() && enter`. (Bool and Enum commit on change since step 1, `EditorResponse::commit`.)
 
 #### EDIT-8
 **No editor for F32/F64 and other `Number` widths.** — *minor*
-- Where: `VariantBackend::show_cell_editor` (`variant.rs:489-507`). Shows "Editor is not implemented for …".
+- Where: `cell_ui::edit_value`. Shows "Editor is not implemented for …".
 
 #### EDIT-9
-**Dead/missing edit entry points.** — *minor*
-- `handle_selection_moves` commits an edit on arrow keys, but it only runs when not editing (dead code, `interaction.rs:322`).
-- `resp.double_clicked_by(..) {}` is an empty branch (`table_view.rs:580`).
-- No Enter/F2/type-to-edit.
+**Missing edit entry points.** — *minor*
+- No Enter/F2/double-click/type-to-edit. (The dead arrow-key commit was removed in step 1, the empty double-click branch with DESIGN-9.)
 - Test (ignored, fails): `editing::f2_starts_editing`.
+
+#### EDIT-12
+**An edit survives the removal of its row or column.** — *minor*
+- Where: `State::end_stale_edit`, `VariantTable::set`.
+- If the edited row is removed (e.g. "Clear" from the tool column menu while editing), the editing coord stays in the selection and the buffer is kept. A later commit writes a cell for a row that no longer exists: `VariantTable::set` only checks the column, so an orphan cell is stored.
+- Fix: cancel the edit when its row or column disappears (DESIGN-8 "Edit lifecycle", step 2); `VariantTable::set` should return `NotFound` for unknown rows.
+- Found by code reading.
 
 #### EDIT-11
 **Integer editors are `DragValue`s: a small drag changes the value.** — *minor (UX)*
-- Where: `VariantBackend::show_cell_editor` (U32/U64/I32/I64).
+- Where: `cell_ui::edit_value` (U32/U64/I32/I64).
 - Effect: clicking into the editor and moving the mouse slightly while pressed changes the number. Grids (Excel, AG Grid, Glide) edit numbers as text and parse on commit.
 - Fix: a parsing `TextEdit` with validation in `VariantCellUi`; `DragValue` as an opt-in per column.
 
@@ -461,21 +451,14 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - Painted after the content at 50% alpha over the top 66% of the cell. Prefer a thin insertion line on the target edge, and skip it when hovering the dragged column itself.
 
 #### DND-5
-**User column order is not preserved.** — *major*
-- Where: `check_col_set_updated` (`table_view.rs:293`).
-- `columns_ordered` is rebuilt and sorted by uid on every `columns_reset` (any `insert_column`, CSV reload). Order is also not stored in `TableViewConfig`.
+**User column order is not persisted.** — *major*
+- Since step 1 the order survives column set changes (`sync_model` keeps known columns in place), but it is not stored in `TableViewConfig`, so it is lost on restart.
 
 #### DND-6
 **Grab cursor only over the label.** — *minor*
 - `on_hover_cursor(Grab)` is set on the name label (`table_view.rs:155`), but the whole header cell is draggable.
 
 ### Selection and keyboard
-
-#### SEL-1
-**Row selection is one column too wide.** — *minor*
-- Where: `SelectedRange::single_row` and `stretch_multi_row` set `col_end = col_count` (`state.rs:73`, `:161`).
-- Effect: Ctrl+C on a row selection appends an extra `\t` per line; paste size matching is off by one.
-- Test (ignored, fails): `selection::row_selection_copies_exactly_the_row`.
 
 #### SEL-2
 **Arrow keys panic with zero rows.** — *crash (debug)*
@@ -515,27 +498,15 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - Fix: parse with `csv::ReaderBuilder` (`\t` delimiter, flexible) and drop a trailing empty record.
 - Test (ignored, fails): `paste::paste_with_trailing_newline`.
 
-#### PASTE-3
-**"Create columns" can panic.** — *crash*
-- `about_to_paste_rows[0].len() - selected_range.width()` underflows when the first row is narrower than the selection (`interaction.rs:261`).
-
 #### PASTE-4
 **Paste dialog state not reset.** — *minor*
 - The code resets `create_cols_on_paste` (`interaction.rs:152`), but the checkbox is bound to `create_adhoc_cols_on_paste`, so the previous choice persists. `create_cols_on_paste` is otherwise unused.
 
-#### PASTE-5
-**Pasted values are always `Variant::Str`.** — *major*
-- Typed columns (e.g. U32) receive strings; `VariantBackend::set` doesn't convert. Fix: convert using the column type in the backend (`set` should coerce or report failure via metadata).
-
 ### Table view / layout
-
-#### VIEW-4
-**Buttons ignore capabilities.** — *minor*
-- "Add row" under an empty table and "Create column" in the no-columns state are shown regardless of `is_read_only` or whether `create_row`/`create_column` are supported.
 
 #### VIEW-5
 **Column context menu stubs.** — *minor*
-- "Sort ascending/descending" and "Hide" do nothing. "Add column" is nested inside `if col.is_sortable` (`table_view.rs:333-344`).
+- "Sort ascending/descending" and "Hide" do nothing.
 
 #### VIEW-6
 **"Clear" has no confirmation.** — *minor*
@@ -548,56 +519,6 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 #### VIEW-7
 **Selection styling uses `warn_fg_color`.** — *minor (visual)*
 - Selection fill and borders use the warning color rather than `visuals.selection`. Vertical selection borders are commented out, so multi-column selections have no side edges.
-
-#### VIEW-10
-**Refused actions are only logged.** — *minor (UX)*
-- Where: `handle_paste` (`interaction.rs:159`, "Refusing to paste without selection", `TODO: forward to toast`).
-- Effect: the user presses Ctrl+V and nothing visible happens.
-- Fix: `TableEvent::Message { level, text }` in `TableViewOutput`; the app shows it (toast, status line).
-
-#### VIEW-11
-**Cell colors are fixed RGB and ignore the theme.** — *minor (visual)*
-- Where: `CellMetadata::{color, corner}: Option<Rgb>`.
-- Effect: a light warning background chosen for light mode leaves light text unreadable in dark mode, and the other way round.
-- Fix: semantic `CellLevel` (`Info`, `Warning`, `Error`, `Changed`) mapped to the current `Visuals` ([DESIGN-14](#design-14-look-and-feel)); keep `Custom(Rgb)` as an escape hatch, with text color picked by contrast.
-
-### Flags and change notification
-
-See [DESIGN-1](#design-1-flags-system) for the planned replacement.
-
-#### FLAGS-1
-**One-shot flags are consumed by the view.** — *major*
-- `show()` archives and zeroes them. A second consumer (a second `TableView`, or app code reading after another view) never sees them, which led to stale columns and the VIEW-1 panic (fixed by DESIGN-9). If the view isn't shown (collapsed tab), the delayed copy never updates.
-
-#### FLAGS-2
-**View events are written into backend flags.** — *design*
-- `rows_selected` and `column_mapping_changed` are UI events stored in the backend's `OneShotFlags`.
-
-#### FLAGS-3
-**Flags that are never set or never read.** — *minor*
-- `first_pass` (never set, although documented as "set once data backend is created"), `visible_row_vec_updated`, `reloaded` (only set by paste/CSV), `cleared` (set by the derive macro but not by `VariantBackend::clear`).
-- In `PersistentFlags`, `is_reload_*`, `column_info_present`, `row_set_present`, `cells_loading`, `have_all_cells`, `have_uncommitted_data`, `have_collisions` are never read.
-
-#### FLAGS-4
-**Duplicated sources of truth.** — *major*
-- `TableBackend::is_clearable()` vs `PersistentFlags::is_clearable`: the view uses the method, the derive macro overrides the method but leaves the flag `true`.
-- `VariantBackend.read_only` vs `PersistentFlags::is_read_only` (see BACKEND-1).
-- `BackendColumn::is_skipped` vs `is_col_skipped()`.
-
-#### FLAGS-5
-**Boilerplate burden.** — *design*
-- Every backend must implement five flag methods (`one_shot_flags`, `one_shot_flags_internal`, `one_shot_flags_internal_mut`, `one_shot_flags_archive`, `persistent_flags`) with prescribed bodies and two `OneShotFlags` fields.
-
-### Backend
-
-#### BACKEND-1
-**`VariantBackend::set_read_only` has no effect.** — *major*
-- It writes `self.read_only`, which nothing reads; the view checks `persistent_flags().is_read_only`.
-- Test (ignored, fails): `editing::read_only_table_does_not_edit`.
-
-#### BACKEND-2
-**`VariantBackend::col_uid` indexes all columns.** — *minor*
-- Includes unused ones, so it is inconsistent with what the view shows (feeds EDIT-4).
 
 ### Import
 
@@ -629,9 +550,6 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 **Panics on write errors.** — *crash*
 - `write_record(..).unwrap()` (`util.rs:59`, `:69`). File-create errors are silently ignored. Should return/report an error.
 
-#### EXPORT-2
-**Uses backend column order, not view order.** — *minor*
-
 #### EXPORT-3
 **Exports skipped columns.** — *minor*
 - Only skipped rows are filtered (`un_skipped_rows`).
@@ -640,43 +558,7 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 **Blocking file dialog in the UI path.** — *minor*
 - `rfd::FileDialog::save_file()` blocks the frame and doesn't work on wasm.
 
-### Derive macro
-
-#### DERIVE-1
-**`#[format = "..."]` output includes literal quotes.** — *major*
-- Where: `tabular_row.rs:158`. `tokens.to_string()` of the literal yields `"\"0x{:08x}\""`.
-- Verified: expansion is `format!("\"0x{:08x}\"", x)`, so cells render as `"0x00001000"`.
-- Fix: match `Expr::Lit(LitStr)` and emit the `LitStr` directly; emit a compile error for anything else.
-
-#### DERIVE-2
-**Generated backend struct is private.** — *major*
-- `struct <Row>TabularBackend` has no visibility. Should inherit the row struct's visibility.
-
-#### DERIVE-3
-**Generated code requires a direct `egui` dependency.** — *minor*
-- It references `egui::Ui` / `egui::Id`. Re-export `egui` from `egui_tabular` and use `egui_tabular::egui::…`.
-
-#### DERIVE-4
-**`get()` and `col_uid()` not generated.** — *minor*
-- Ctrl+C and CSV export do nothing for derived tables; Tab/E never work.
-
-#### DERIVE-5
-**Tuple structs generate invalid field access.** — *minor*
-- Unnamed fields generate `row._0` instead of `row.0`.
-
 ### Documentation
-
-#### DOC-1
-**README links `TableBackend` to `src/backend.rs`, which doesn't exist.** — *minor*
-- The trait lives in `tabular_core/src/backend.rs` (and becomes `TableModel` in DESIGN-8).
-
-#### DOC-2
-**README says skipped rows show "a hatch pattern".** — *minor*
-- `VariantBackend::show_cell_view` crosses the cell out with two diagonal lines. Since DESIGN-8 the view draws the skipped state; decide on one look and document it.
-
-#### DOC-3
-**README claims "No need to keep all data in memory".** — *minor*
-- True for cell values, but the view holds every row uid (DESIGN-8 known limit). Say so.
 
 #### DOC-4
 **README shortcut list is stale.** — *minor*
@@ -793,6 +675,25 @@ values (DESIGN-11), typed column type, more capabilities and commands, row build
 (DESIGN-10), `CellUi::text`, column selections, programmatic control, the row uid contract,
 `TableEvent::Message`, and undo inverses from the first implementation. The code blocks below
 include the amendments.
+
+**Step 1 implemented 2026-10-01.** Where the code differs from the text below:
+
+- Added only what is breaking or used now. Defaulted methods that nothing calls yet come with the
+  step that uses them: `rows_log` (step 4), `sorted_rows` (sorting), `rename_column` and
+  `Capabilities::rename_columns` (step 5). Same for `TableViewOptions::{stick_to_bottom,
+  sort_policy, style}`, `CellMetadata::{loading, changed}` and the programmatic control API (step 2).
+- `TableCommand`: no `SetMany`; `Batch(Vec<TableCommand>)` instead, which is also the form of
+  compound inverses. `Paste` carries the resolved target (`rows`, `create_rows`, `columns`,
+  `create_columns`, `block`, `repeat`) instead of an anchor and a mode; the paste dialog still
+  computes it (PASTE-1, PASTE-2, PASTE-4 remain). `CommandFailed` boxes the command.
+- `ModelError::NotFound` was added. `Capabilities` has `NONE`, `ALL` and `read_only()`;
+  `ColumnInfo` has builder methods and `type_text()`.
+- The view already owns the edit buffer (`State::edit`, part of step 2): `begin_edit` →
+  `show_editor` → `TableCommand::Set` on commit. Selection is still index-based (`SelectedRange`).
+- Queued commands are applied twice per frame: after input handling (so the body shows the result,
+  e.g. Tab after a commit) and after drawing.
+- `CellUi` has default `show_cell`/`show_editor` (the built-in viewer and editor), so
+  `VariantCellUi` is an empty impl, and custom UIs get editing of `Variant` values for free.
 
 #### Principles
 
@@ -1048,9 +949,10 @@ for apps that route edits to a server.
 - The view holds `visible_rows: Vec<RowUid>`. It is rebuilt when `revision.rows` changes, when
   `config.sort` or the filter changes, or when `revision.cells` changes while a sort or filter is
   active and `SortPolicy` allows it (edits made in this view never re-sort,
-  [DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and a
-  crate-local Variant comparator, because `rvariant::Variant` doesn't implement `Ord`. Numbers
-  compare by value, strings case-insensitively, and empty values sort last.
+  [DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and
+  `rvariant::Variant::sort_cmp` (rvariant 0.3; the derived `Ord` compares by variant first, so
+  `U32(5)` vs `I64(3)` would be wrong). Check that numbers compare by value, strings
+  case-insensitively, and empty values sort last; wrap it if not.
 - `visible_rows` is `RowLayout`'s row order ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)).
   Row heights are cached there by `RowUid`, and the scroll anchor follows its row through re-sorts.
 - **Delegated sorting hook:** if `model.sorted_rows(&config.sort)` returns `Some`, the view uses
@@ -1118,6 +1020,12 @@ its editor has focus. Shortcuts run only when the table is active. Copy and past
 | `TableFrontend::show_cell_view` that looks up the row per cell | `CellUi::show_row`: one lookup, then `cells.cell(col, \|ui\| ..)` (DESIGN-10) |
 | `cell_color` / `cell_corner` returning `Color32` | `CellMetadata::level` (`CellLevel`), or `cells.level(col, ..)` from `show_row` |
 | `BackendColumn::ty: String` | `ColumnInfo::ty: Option<VariantTy>` + `type_label` |
+| `VariantBackend::new([(name, ty, default)])` | `VariantTable::new([ColumnDef::new(name, ty).default(v)])` |
+| `insert_column(uid, name, synonyms, ty, default, required, used)` | `insert_column(uid, ColumnDef::new(..).synonyms(..).required(..).used(..))` |
+| `TableView::new()` | `TableView::new(TableViewOptions::default())` |
+| `importer.show(config, max_h, ui, id)`, `importer.backend()` | `importer.show(config, ui) -> TableViewOutput`, `importer.table()`; options via `importer.table_view.options_mut()` |
+| `#[derive(TabularRow)] struct Row` → `RowTabularBackend` | `RowTable` (same visibility as `Row`) |
+| `set_metadata(coord, CellMetadata::new().color(Rgb::ORANGE))` | `CellMetadata::new().level(CellLevel::Warning)` (`CellLevel::Custom(rgb)` for a fixed color) |
 
 ### DESIGN-9: Anchor-based layout without egui_extras
 
@@ -1172,7 +1080,10 @@ tool column during horizontal scroll.
 
 ### DESIGN-10: Row builder for cell UI
 
-**Status:** proposed 2026-10-01; part of roadmap step 1 (it shapes the `CellUi` trait).
+**Status:** implemented 2026-10-01 in roadmap step 1. Differences: `RowCells::columns()` returns
+`&'a [ColumnUid]` (not tied to the `RowCells` borrow, so `cell()` can be called while iterating)
+instead of an `Rc` handle. Until the editor overlay (DESIGN-12) the edited cell is not given to
+`show_row` (`wants` is false); the view draws the editor into it.
 
 **Problem.** A custom frontend gets one call per cell (`show_cell_view(coord)`). When the row lives
 in an in-memory database, a decoded frame or any struct that is costly to find, every cell repeats
@@ -1456,20 +1367,22 @@ structurally, so patching them in the old code first would be wasted work.
 
 0. ✅ **Housekeeping** — done: dead modules deleted, never-called trait stubs removed, missing
    derives, `Cargo.toml` versions, `.idea/` untracked.
-1. 📋 **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) with its
-   amendments): `Revision`, `Capabilities`, `TableModel` (optional `get`, typed `ColumnInfo::ty`,
-   `row_values`, `rows_log`, 64-bit `RowUid`), `CellUi` with the row builder
+1. ✅ **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) with its
+   amendments, see "Step 1 implemented" there): `Revision`, `Capabilities`, `TableModel` (optional
+   `get`, typed `ColumnInfo::ty`, `row_values`, 64-bit `RowUid`), `CellUi` with the row builder
    ([DESIGN-10](#design-10-row-builder-for-cell-ui)) and `text()`, `VariantCellUi`, command queue
-   whose `apply` returns inverse commands. Port `VariantBackend` → `VariantTable`, the derive macro,
-   the importer and the three demos. Fixes FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4,
-   PASTE-5. Fold in DERIVE-1, DERIVE-5.
-2. 🚧 **View state rewrite:** uid selection with anchor/cursor (cells, rows, columns), view-owned
-   edit buffer with the editor overlay ([DESIGN-12](#design-12-editor-overlay)), focus-based input,
-   `TableViewOptions`, programmatic control (`set_selection`, `scroll_to`, ...), `TableEvent::Message`,
-   view-owned row order (sorting) built into `RowLayout` with `SortPolicy`
-   ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). Fixes EDIT-1..3, EDIT-5..7, EDIT-9,
-   SEL-1..5, VIEW-4, VIEW-5, VIEW-10, DND-3. The anchor-based layout
-   ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)) landed ahead of this step.
+   whose `apply` returns inverse commands, `TableViewOptions`, `TableViewOutput`/`TableEvent`.
+   Ported `VariantBackend` → `VariantTable`, the derive macro, the importer and the three demos.
+   Fixed FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-1..5, PASTE-5, and along the way EDIT-1,
+   EDIT-2, EDIT-7, SEL-1, PASTE-3, VIEW-4, VIEW-10, VIEW-11, EXPORT-2, DOC-1..3.
+2. 🚧 **View state rewrite:** uid selection with anchor/cursor (cells, rows, columns), the editor
+   overlay ([DESIGN-12](#design-12-editor-overlay)), the full edit lifecycle (`finish_edit`, cancel
+   when the row disappears), focus-based input, programmatic control (`set_selection`,
+   `scroll_to`, ...), view-owned row order (sorting) built into `RowLayout` with `SortPolicy`
+   ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). Fixes EDIT-3, EDIT-5, EDIT-6,
+   EDIT-9, EDIT-12, SEL-2..5, VIEW-5, DND-3. Already landed ahead of this step: the anchor-based
+   layout ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)), the view-owned edit
+   buffer and `TableViewOptions` (step 1).
 3. 📋 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`;
    hidden columns with a column chooser; frozen columns and a sticky tool column.
 4. 📋 **Live data** ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)): `rows_log`
@@ -1483,17 +1396,17 @@ structurally, so patching them in the old code first would be wasted work.
    Clear (VIEW-6).
 6. 📋 **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), paste fill without a dialog,
    copy raw values and copy with headers, `write_csv(model, order, impl Write) -> Result`
-   (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of steps 1–5; can
+   (EXPORT-1, EXPORT-3, EXPORT-4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of steps 1–5; can
    land any time.
 7. 📋 **Look and feel and accessibility** ([DESIGN-14](#design-14-look-and-feel)): `TableStyle`,
-   selection drawing (VIEW-7), semantic levels (VIEW-11), truncation, alignment, header highlight,
+   selection drawing (VIEW-7), contrast for `CellLevel::Custom`, truncation, alignment, header highlight,
    status bar; AccessKit grid semantics; touch drag-to-scroll (VIEW-8).
 8. 📋 **More features:** per-column filters, XLSX import, more editors (EDIT-8, dates, searchable
    enum), multi-line text, translatable strings, pause for live views, hierarchical rows (idea).
 
 **Independent, any time — do first:** CI (needs the `rvariant` dependency fixed), then benchmarks
 and property tests (see [housekeeping](#unused-api-dead-code-and-housekeeping)). Small fixes:
-IMPORT-2, IMPORT-3. README fixes DOC-1..4 can land now; DOC-5 after step 1.
+IMPORT-2, IMPORT-3, DOC-4. DOC-5 can start now that step 1 has landed.
 
 ---
 
@@ -1507,8 +1420,34 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
-| EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom `TableFrontend` UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
+| EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
+| FLAGS-1 | `STEP1` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |
+| FLAGS-2 | `STEP1` | View events (`rows_selected`, `column_mapping_changed`) moved to `TableViewOutput::events`. (DESIGN-8) |
+| FLAGS-3 | `STEP1` | Flag system removed. (DESIGN-8) |
+| FLAGS-4 | `STEP1` | One source each: `capabilities()`, `ColumnInfo::is_skipped`. (DESIGN-8) |
+| FLAGS-5 | `STEP1` | No flag methods; a model implements `revision()` and `capabilities()`. (DESIGN-8) |
+| EDIT-1 | `STEP1` | A row number click commits the edit; the edit buffer is the view's. Test: `editing::row_number_click_commits_edit`. |
+| EDIT-2 | `STEP1` | No backend edit buffer to go stale; the view drops its buffer when the cell is no longer edited. Test: `editing::escape_away_from_table_cancels_edit`. |
+| EDIT-4 | `STEP1` | `E` and Tab take the cell from the view's row and column order; `col_uid`/`row_uid` are gone from the model. Tests: `editing::{e,tab}_edits_visual_column_after_reorder`. (DESIGN-8) |
+| EDIT-7 | `STEP1` | Bool values are drawn as a check mark that doesn't take the click. Test: `model::bool_cell_click_selects_the_cell`. |
+| SEL-1 | `STEP1` | Row selections end at the last column. Test: `selection::row_selection_copies_exactly_the_row`. |
+| PASTE-3 | `STEP1` | Column count to create uses `saturating_sub`. |
+| PASTE-5 | `STEP1` | `VariantTable` converts values to the column type; failures are kept and marked. Test: `commands::tests::paste_converts_to_column_type`. |
+| VIEW-4 | `STEP1` | "Add row", "Create column", "Append row", "Clear", "Skip" follow the model's capabilities and `TableViewOptions::read_only`. Test: `model::read_only_table_offers_no_add_row_or_create_column`. |
+| VIEW-10 | `STEP1` | `TableEvent::Message` instead of a log line. Test: `model::paste_without_selection_tells_the_user`. |
+| VIEW-11 | `STEP1` | `CellLevel` instead of `Rgb`, mapped to the theme's colors. |
+| BACKEND-1 | `STEP1` | `VariantTable::set_read_only` sets the capabilities. Test: `editing::read_only_table_does_not_edit`. |
+| BACKEND-2 | `STEP1` | `col_uid` removed from the model. (DESIGN-8) |
+| EXPORT-2 | `STEP1` | Export uses the view's column order. |
+| DERIVE-1 | `STEP1` | The `#[format]` string literal is used as is; anything else is a compile error. Test: `tests` package. |
+| DERIVE-2 | `STEP1` | `<Row>Table` has the row struct's visibility. |
+| DERIVE-3 | `STEP1` | The generated code has no egui. |
+| DERIVE-4 | `STEP1` | `get()` and `row_values()` are generated; copy and export work. |
+| DERIVE-5 | `STEP1` | Tuple fields are accessed as `row.0`. |
+| DOC-1 | `STEP1` | README links `TableModel` and `CellUi`. |
+| DOC-2 | `STEP1` | README says skipped cells are crossed out. |
+| DOC-3 | `STEP1` | README says the view keeps one id per row. |
 
 ---
 

@@ -4,16 +4,17 @@
 
 <img align="right" src="https://github.com/romixlab/egui_tabular/blob/main/assets/simple_demo.png?raw=true" alt="logo"/>
 
-Fast and responsive table viewer and editor, that only shows visible rows. Data backend is fully generic,
-allowing implementations based on vectors, files, databases and other data structures.
+Fast and responsive table viewer and editor, that only shows visible rows. The data model is fully generic,
+allowing implementations based on vectors, files, databases, live bus traces and other data structures.
 
 TODO: Add web demo.
 
 ## Features
 
-* [x] Cells UI and table information is provided through the [TableBackend](src/backend.rs) trait.
-* [x] Custom cell viewer and editor ui, any egui or user widgets can be used.
-* [x] Built-in cell viewers and editors through [VariantBackend](src/backends/variant.rs):
+* [x] Data comes from the egui-free [TableModel](tabular_core/src/model.rs) trait; change detection with revision counters, so any number of views and app code can observe one model.
+* [x] Custom cell viewer and editor ui through [CellUi](src/cell_ui.rs), any egui or user widgets can be used.
+  A row is looked up once and its cells filled by column, values (`Variant`) are optional.
+* [x] Built-in cell viewers and editors ([VariantCellUi](src/cell_ui.rs)) and an in-memory [VariantTable](src/backends/variant.rs):
     * [x] String, string list, numbers, booleans, custom enums
     * [ ] Date, SI values, currency
 * [x] Data import with automatic column mapping based on names.
@@ -21,7 +22,7 @@ TODO: Add web demo.
     * [ ] XLS support.
 * [x] Manual column mapping to one of the choices provided by the backend (combo box above columns).
 * [ ] Undo / Redo support.
-* [x] No need to keep all data in memory (if backend supports it).
+* [x] Cell values don't have to be in memory (if the model supports it); the view keeps one id per row.
 * [ ] Support for sorting.
 * [ ] Support for filtering based on custom user ui from the TableBackend trait.
 * [x] Keyboard shortcuts and navigation.
@@ -35,10 +36,29 @@ TODO: Add web demo.
 * [x] Export to CSV.
 * [x] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
-* [x] Disable/enable rows and columns (show a hatch pattern when disabled).
-* [x] Change a column type and try to turn data into requested type (VariantBackend, only from code now).
+* [x] Disable/enable rows and columns (disabled cells are crossed out).
+* [x] Change a column type and try to turn data into requested type (VariantTable, only from code now).
+* [x] Values are converted to the column type on paste and import; ones that don't convert are highlighted.
 * [x] Derive macro to show Vec<UserRowStruct> as table.
 * [ ] Improve drag&drop, like on DK
+
+## Usage
+
+```rust
+use egui_tabular::rvariant::VariantTy;
+use egui_tabular::{ColumnDef, TableView, TableViewConfig, TableViewOptions, VariantCellUi, VariantTable};
+
+let mut table = VariantTable::new([ColumnDef::new("Name", VariantTy::Str)]);
+let mut view = TableView::new(TableViewOptions::default());
+let mut config = TableViewConfig::default(); // user preferences, serde
+
+// Every frame:
+let output = view.show(ui, &mut table, &mut VariantCellUi, &mut config);
+for event in output.events { /* selection, committed edits, messages for the user, ... */ }
+```
+
+For your own data, implement `TableModel` (data only) and, for custom rendering, `CellUi`.
+See `demos/` and `#[derive(TabularRow)]`.
 
 ## Non-goals
 
@@ -70,7 +90,7 @@ Experimental — many of the essential features are implemented, but documentati
 
 This project borrows some ideas from the great [egui-data-table](https://github.com/kang-sw/egui-data-table).
 Check it out if you don't need CSV/XLS import with column mapping or want to show some data based on a vector.
-The idea behind TableBackend trait in this crate is to allow more advanced data retrieval, for example from a database.
+The idea behind the TableModel trait in this crate is to allow more advanced data retrieval, for example from a database.
 
 ## Compatible version with egui
 

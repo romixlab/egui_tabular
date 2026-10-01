@@ -39,7 +39,7 @@ impl eframe::App for SimpleApp {
         });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            self.importer.show(&mut self.config, None, ui, ui.id());
+            self.importer.show(&mut self.config, ui);
         });
     }
 }

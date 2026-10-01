@@ -1,32 +1,25 @@
-use egui_tabular::backends::variant::VariantBackend;
 use egui_tabular::rvariant::{Number, NumberTy, Variant, VariantTy};
-use egui_tabular::table_view::TableViewConfig;
-use egui_tabular::{ColumnUid, TableView};
+use egui_tabular::{
+    ColumnDef, ColumnUid, TableView, TableViewConfig, TableViewOptions, VariantCellUi, VariantTable,
+};
 
 struct SimpleApp {
-    backend: VariantBackend,
+    table: VariantTable,
     viewer: TableView,
     config: TableViewConfig,
 }
 
 impl Default for SimpleApp {
     fn default() -> Self {
-        let mut backend = VariantBackend::new([
-            (
-                "Name",
-                VariantTy::Str,
-                Some(Variant::Str("Default name".into())),
-            ),
-            (
-                "Count",
-                VariantTy::Number(NumberTy::U32),
-                Some(Variant::Number(Number::U32(0))),
-            ),
+        let mut table = VariantTable::new([
+            ColumnDef::new("Name", VariantTy::Str).default(Variant::Str("Default name".into())),
+            ColumnDef::new("Count", VariantTy::Number(NumberTy::U32))
+                .default(Variant::Number(Number::U32(0))),
         ]);
         let mut rng = fastrand::Rng::new();
         let mut name_gen = names::Generator::with_naming(names::Name::Numbered);
         for _ in 0..10_000 {
-            backend.insert_row([
+            table.insert_row([
                 (ColumnUid(0), Variant::Str(name_gen.next().unwrap())),
                 (
                     ColumnUid(1),
@@ -35,8 +28,8 @@ impl Default for SimpleApp {
             ]);
         }
         Self {
-            backend,
-            viewer: TableView::new(),
+            table,
+            viewer: TableView::new(TableViewOptions::default()),
             config: Default::default(),
         }
     }
@@ -65,7 +58,7 @@ impl eframe::App for SimpleApp {
 
         egui::CentralPanel::default().show(ui, |ui| {
             self.viewer
-                .show(&mut self.backend, &mut self.config, None, ui, ui.id());
+                .show(ui, &mut self.table, &mut VariantCellUi, &mut self.config);
         });
     }
 }

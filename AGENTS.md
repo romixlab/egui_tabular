@@ -29,14 +29,15 @@ such as `EDIT-4` or `DND-3`), the planned design rework, and the roadmap.
 
 Cargo workspace (edition 2024):
 
-- `tabular_core/` — egui-free core: `TableBackend` trait, uid/coord types, flags, cell metadata.
+- `tabular_core/` — egui-free core: `TableModel` trait, `Revision`, `Capabilities`, `ColumnInfo`,
+  uid/coord types, cell metadata.
 - `tabular_derive/` — `#[derive(TabularRow)]` proc macro.
-- `src/` — the `egui_tabular` crate: `TableView` (`src/table_view*`), `TableFrontend`
-  (`src/frontend.rs`), `VariantBackend` (`src/backends/variant.rs`), CSV import (`src/importers/`),
-  utilities (`src/util.rs`).
+- `src/` — the `egui_tabular` crate: `TableView` (`src/table_view*`), `CellUi` + `VariantCellUi`
+  (`src/cell_ui.rs`), `TableCommand` (`src/commands.rs`), `VariantTable`
+  (`src/backends/variant.rs`), CSV import (`src/importers/`), utilities (`src/util.rs`).
 - `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` — runnable examples.
 - `tests/ui/` — headless UI tests (egui_kittest), see [UI tests](#ui-tests).
-- `tests/Cargo.toml` + `tests/src/` — the `tests` package: derive macro compile test.
+- `tests/Cargo.toml` + `tests/src/` — the `tests` package: derive macro tests.
 
 FEATURES.md has a more detailed layout table.
 
@@ -63,7 +64,7 @@ the GUI, say so, and describe the manual check in the PR.
 
 ## UI tests
 
-`tests/ui/` drives a real `TableView` + `VariantBackend` with
+`tests/ui/` drives a real `TableView` + `VariantTable` (or any model, `Table::custom`) with
 [egui_kittest](https://docs.rs/egui_kittest). The harness runs egui frames without a window,
 injects input events and queries the AccessKit tree that egui builds every frame. Nothing is
 rendered and no screenshots are taken.
@@ -89,7 +90,8 @@ rendered and no screenshots are taken.
   - Selection: `Table::copy()` presses Ctrl+C and returns the copied TSV, which the fixture
     captures from the `CopyText` output command. `None` means nothing is selected.
   - Editing: `Table::editor()` is the `TextInput` node; `editor_text()` is its value.
-  - Data: `Table::value(row, col)` reads the backend; `has(text)` checks what is displayed.
+  - Data: `Table::value(row, col)` reads the model; `has(text)` checks what is displayed.
+  - Events: `t.h.state().events` collects every `TableEvent` the view reported.
   - Column order: `Table::header_order()` sorts header labels by x.
 
   Don't add accessors to `TableView` just for tests. The view's state is being rewritten
@@ -97,16 +99,17 @@ rendered and no screenshots are taken.
 - **Keyboard needs the pointer over the table (SEL-4).** Clicks leave the pointer where they
   clicked. `drop_at` and `pointer_away()` remove it, so call `hover(..)` before pressing keys
   after a drag. `CTRL` sets both `ctrl` and `command`, as egui-winit does on Linux/Windows.
-- **A view picks up columns and rows from the backend's one-shot flags (FLAGS-1).** Give every
-  harness a fresh backend; to customize the harness (OS, size), use
-  `Table::grid_with(Harness::builder().with_os(..), ..)`.
+- **Custom models.** `Table::custom(model, cell_ui)` runs the same helpers over any `TableModel`
+  and `CellUi` (see `tests/ui/model.rs`). To customize the harness (OS, size), use
+  `Table::grid_with(Harness::builder().with_os(..), ..)` or `Table::build`.
 
 ### Conventions
 
 - Go through the helpers in `tests/ui/fixture.rs`; add a helper when you need a new interaction.
-  When DESIGN-8 changes the API, only the fixture should need porting.
+  When the API changes, only the fixture should need porting.
 - One behavior per test, named after it (`enter_commits`, `drag_header_reorders_columns`). Put it
-  in the module for its area: `selection`, `editing`, `keyboard`, `columns`, `paste`.
+  in the module for its area: `selection`, `editing`, `keyboard`, `columns`, `paste`, `model`
+  (the model contract, custom models and cell UIs, events).
 - **Known bugs are executable.** A bug that can be reproduced through the UI gets a test asserting
   the *intended* behavior, marked `#[ignore = "EDIT-4: one-line summary"]`, and the bug entry in
   FEATURES.md gets a "Test" bullet pointing to it. Before committing, check with
@@ -130,13 +133,18 @@ rendered and no screenshots are taken.
 - The egui version is listed in the README compatibility table. egui_extras is no longer used: the
   view lays out rows and columns itself ([DESIGN-9](FEATURES.md#design-9-anchor-based-layout-without-egui_extras)).
 - **A breaking redesign is in progress: [DESIGN-8](FEATURES.md#design-8-core-contract-rework-tablemodel--cellui).**
-  New code should move toward it, not extend the old `TableBackend`/`TableFrontend` API or the
-  flag system. Don't patch bugs that DESIGN-8 removes structurally (see the roadmap).
-- Until DESIGN-8 lands, these pitfalls apply to the old code:
-  - The view owns visual column order (`State::columns_ordered`). Don't map visual indices to
-    columns through the backend (`TableBackend::col_uid`), which is the cause of EDIT-4.
-  - Editing state has two owners (view `SelectedRange.editing` and backend edit buffer). Any code
-    path that leaves edit mode must commit or cancel in the backend too.
-  - The view's row order (`RowLayout`) is rebuilt on `OneShotFlags::row_set_updated` or a row
-    count change. Never `unwrap()` `row_uid()`.
+  The model contract (roadmap step 1) has landed; the view state rewrite (step 2) is next. Don't
+  patch bugs that the next steps remove structurally (see the roadmap).
+- The model is data only and egui-free (`tabular_core`). Everything the user sees is ordered and
+  held by the view: column order (`State::columns_ordered`), row order (`RowLayout`), selection and
+  the edit buffer (`State::edit`). Map visual indices through those, never through the model.
+- The view never changes the model while drawing: queue a `TableCommand` in `State::commands`. The
+  queue is applied after input handling and after the frame. Each command's `apply` returns its
+  inverse (for undo); keep that true when adding commands. The only exception is custom `CellUi`
+  widgets, which get `&mut M`.
+- The view picks up model changes by comparing `TableModel::revision()` with the last seen one
+  (`sync_model`). A model must bump the right counter on every change.
+- Until step 2, selection is index-based (`SelectedRange`) and its editing coord must match
+  `State::edit`: leave edit mode through `State::commit_edit` or by clearing the coord (the buffer
+  is dropped at the end of the frame).
 - Avoid usize underflow in selection math (`count - 1` with empty tables).

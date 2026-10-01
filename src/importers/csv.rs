@@ -1,12 +1,11 @@
 use super::required_column::RequiredColumns;
-use crate::backends::variant::VariantBackend;
+use crate::backends::variant::{ColumnDef, VariantTable};
 use crate::util::{base_26, detect_encoding};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use log::{trace, warn};
 use rvariant::{Variant, VariantTy};
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek, SeekFrom};
-use tabular_core::backend::TableBackend;
 use tabular_core::{ColumnUid, CsvImporterConfig, Separator};
 
 pub(crate) struct CsvImporter {
@@ -59,7 +58,7 @@ impl CsvImporter {
         &mut self,
         config: &mut CsvImporterConfig,
         rdr: &mut BufReader<R>,
-        backend: &mut VariantBackend,
+        backend: &mut VariantTable,
         max_lines: Option<usize>,
     ) {
         trace!("CsvImporter: loading");
@@ -121,9 +120,9 @@ impl CsvImporter {
                             .get(&csv_idx)
                             .copied()
                             .unwrap_or(ColumnUid(csv_idx as u32));
-                        let value = self.convert_cell_value(col_uid, cell_value);
                         max_col_idx = max_col_idx.max(csv_idx);
-                        (col_uid, value)
+                        // The table converts the text to the column's type.
+                        (col_uid, Variant::Str(cell_value.to_string()))
                     }));
                     if let Some(max_lines) = max_lines {
                         lines_read += 1;
@@ -143,26 +142,11 @@ impl CsvImporter {
             for col_idx in 0..max_col_idx {
                 backend.insert_column(
                     Some(ColumnUid(col_idx as u32)),
-                    base_26(col_idx as u32 + 1),
-                    vec![],
-                    VariantTy::Str,
-                    None,
-                    false,
-                    true,
+                    ColumnDef::new(base_26(col_idx as u32 + 1), VariantTy::Str),
                 );
             }
         }
         self.state.status = IoStatus::Loaded;
-        backend.one_shot_flags_internal_mut().columns_reset = true;
-        backend.one_shot_flags_internal_mut().reloaded = true;
-    }
-
-    fn convert_cell_value(&self, col_uid: ColumnUid, value: &str) -> Variant {
-        if let Some(r) = self.required_columns.get(col_uid) {
-            Variant::from_str(value, &r.ty)
-        } else {
-            Variant::Str(value.to_string())
-        }
     }
 
     fn determine_separator<R: Read + Seek>(
@@ -197,7 +181,7 @@ impl CsvImporter {
     fn map_columns(
         &mut self,
         csv_columns: Vec<&str>,
-        backend: &mut VariantBackend,
+        backend: &mut VariantTable,
     ) -> HashMap<usize, ColumnUid> {
         // let mut columns = HashMap::new();
         let mut csv_to_col_uid = HashMap::new();
@@ -212,15 +196,7 @@ impl CsvImporter {
                 }
                 csv_to_col_uid.insert(csv_col_idx, col_uid);
             }
-            backend.insert_column(
-                Some(col_uid),
-                col.name.clone(),
-                col.synonyms.clone(),
-                col.ty.clone(),
-                col.default.clone(),
-                true,
-                true,
-            );
+            backend.insert_column(Some(col_uid), col.column_def());
         }
 
         // Put all additional columns to the right of required ones
@@ -229,12 +205,7 @@ impl CsvImporter {
                 csv_to_col_uid.insert(csv_idx, next_absent_col_uid);
                 backend.insert_column(
                     Some(next_absent_col_uid),
-                    column.to_string(),
-                    vec![],
-                    VariantTy::Str,
-                    None,
-                    false,
-                    false,
+                    ColumnDef::new(*column, VariantTy::Str).used(false),
                 );
                 next_absent_col_uid = ColumnUid(next_absent_col_uid.0 + 1);
             }

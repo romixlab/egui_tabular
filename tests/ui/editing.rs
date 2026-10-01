@@ -61,10 +61,9 @@ fn tab_commits_and_edits_next_cell() {
 }
 
 #[test]
-#[ignore = "BACKEND-1: VariantBackend::set_read_only has no effect"]
 fn read_only_table_does_not_edit() {
     let mut t = Table::grid(2, 2);
-    t.h.state_mut().backend.set_read_only(true);
+    t.h.state_mut().table.set_read_only(true);
     t.click("A1");
     t.click("A1");
     t.press(Key::E);
@@ -72,7 +71,6 @@ fn read_only_table_does_not_edit() {
 }
 
 #[test]
-#[ignore = "EDIT-1: tool column click while editing drops the edit"]
 fn row_number_click_commits_edit() {
     let mut t = Table::grid(2, 2);
     t.start_edit("A1");
@@ -83,8 +81,7 @@ fn row_number_click_commits_edit() {
 }
 
 #[test]
-#[ignore = "EDIT-2: Escape with the pointer outside the table leaves a stale edit buffer"]
-fn escape_away_from_table_cancels_in_backend() {
+fn escape_away_from_table_cancels_edit() {
     let mut t = Table::grid(2, 2);
     t.start_edit("A1");
     t.type_replace("stale");
@@ -97,7 +94,6 @@ fn escape_away_from_table_cancels_in_backend() {
 }
 
 #[test]
-#[ignore = "EDIT-4: E and Tab use backend column order, not visual order"]
 fn e_edits_visual_column_after_reorder() {
     let mut t = Table::grid(2, 2);
     t.drag_column(1, 0);
@@ -111,7 +107,6 @@ fn e_edits_visual_column_after_reorder() {
 }
 
 #[test]
-#[ignore = "EDIT-4: E and Tab use backend column order, not visual order"]
 fn tab_edits_visual_column_after_reorder() {
     let mut t = Table::grid(2, 2);
     t.drag_column(1, 0);
