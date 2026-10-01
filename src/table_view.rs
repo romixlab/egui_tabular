@@ -22,6 +22,12 @@ pub struct TableView {
     state: state::State,
 }
 
+impl Default for TableView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TableView {
     pub fn new() -> Self {
         TableView {

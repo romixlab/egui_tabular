@@ -30,8 +30,7 @@ Cargo workspace (edition 2024):
 - `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` — runnable examples.
 - `tests/` — derive macro compile test.
 
-FEATURES.md has a more detailed layout table and explains which modules are dead code (not in any
-`mod` tree): don't edit those expecting an effect.
+FEATURES.md has a more detailed layout table.
 
 `rvariant` is a path dependency on `../rvariant`; a sibling checkout is required to build.
 
@@ -54,12 +53,14 @@ can't run the GUI, say so, and describe the manual check in the PR.
 
 - Match the surrounding code style; run `cargo fmt`.
 - egui and egui_extras versions are pinned to the same minor version (see the README compatibility table).
-- The view owns visual column order (`State::columns_ordered`). Don't map visual indices to columns
-  through the backend (`TableBackend::col_uid`), which is the cause of EDIT-4 and is slated for removal.
-- Editing state currently has two owners (view `SelectedRange.editing` and backend edit buffer).
-  Any code path that leaves edit mode must commit or cancel in the backend too (see DESIGN-2).
-- Row heights are synced from `OneShotFlags::row_set_updated`; mutating rows inside `show()`
-  (menus, key handlers) can desync them (VIEW-1). Never `unwrap()` `row_uid()`.
+- **A breaking redesign is in progress: [DESIGN-8](FEATURES.md#design-8-core-contract-rework-tablemodel--cellui).**
+  New code should move toward it, not extend the old `TableBackend`/`TableFrontend` API or the
+  flag system. Don't patch bugs that DESIGN-8 removes structurally (see the roadmap).
+- Until DESIGN-8 lands, these pitfalls apply to the old code:
+  - The view owns visual column order (`State::columns_ordered`). Don't map visual indices to
+    columns through the backend (`TableBackend::col_uid`), which is the cause of EDIT-4.
+  - Editing state has two owners (view `SelectedRange.editing` and backend edit buffer). Any code
+    path that leaves edit mode must commit or cancel in the backend too.
+  - Row heights are synced from `OneShotFlags::row_set_updated`; mutating rows inside `show()`
+    (menus, key handlers) can desync them (VIEW-1). Never `unwrap()` `row_uid()`.
 - Avoid usize underflow in selection math (`count - 1` with empty tables).
-- Breaking changes to `TableBackend`/`TableFrontend` should follow the plan in FEATURES.md
-  (DESIGN-1/3) rather than introducing new ad-hoc flags.

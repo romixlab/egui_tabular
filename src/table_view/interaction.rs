@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use crate::TableView;
 use crate::frontend::TableFrontend;
 use crate::table_view::state::SelectedRange;
-use crate::TableView;
 use egui::{Event, Id, Key, Modal, Ui};
 use itertools::Itertools;
 use log::warn;

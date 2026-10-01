@@ -22,8 +22,8 @@ egui = { version = "0.36" }
 egui_tabular = { path = ".", version = "0.2" }
 rvariant = { path = "../rvariant", features = ["serde"], version = "0.3" }
 strum = { version = "0.28", features = ["derive"] }
-tabular_core = { version = "0.1", path = "./tabular_core" }
-tabular_derive = { version = "0.1", path = "./tabular_derive" }
+tabular_core = { version = "0.2", path = "./tabular_core" }
+tabular_derive = { version = "0.2", path = "./tabular_derive" }
 
 [dependencies]
 chardetng = "1.0"
@@ -34,11 +34,11 @@ encoding_rs = "0.8"
 encoding_rs_io = "0.1"
 indexmap = "2"
 itertools = "0.15"
-log = "0"
+log = "0.4"
 rfd = "0.17"
 rvariant = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 strum = { workspace = true }
-tabular_core = { version = "0.2", path = "./tabular_core" }
-tabular_derive = { version = "0.2", path = "./tabular_derive" }
+tabular_core = { workspace = true }
+tabular_derive = { workspace = true }
 tap = "1.0"
