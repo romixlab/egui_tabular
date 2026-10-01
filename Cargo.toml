@@ -41,3 +41,6 @@ strum = { workspace = true }
 tabular_core = { workspace = true }
 tabular_derive = { workspace = true }
 tap = "1.0"
+
+[dev-dependencies]
+egui_kittest = "0.36"
