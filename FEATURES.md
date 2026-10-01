@@ -942,11 +942,11 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 
 | ID | Fixed in | Note |
 |----|----------|------|
-| VIEW-1 | _pending_ | Body iterates the view's row order, resynced after the header and on row count change; no `unwrap`. (DESIGN-9) |
-| VIEW-2 | _pending_ | Row heights cached by `RowUid`. (DESIGN-9) |
-| VIEW-3 | _pending_ | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
-| VIEW-9 | _pending_ | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
-| DND-2 | _pending_ | Column widths keyed by `ColumnUid`. (DESIGN-9) |
+| VIEW-1 | `bf0d2d8` | Body iterates the view's row order, resynced after the header and on row count change; no `unwrap`. (DESIGN-9) |
+| VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
+| VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
+| VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
+| DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 
 ---
 
