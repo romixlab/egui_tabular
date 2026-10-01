@@ -2,6 +2,13 @@
 
 Guidance for AI agents and contributors. Read this before changing code.
 
+## Branch `v0.3.0` is under heavy development
+
+Breaking changes are not just accepted here, they are preferred whenever they lead to a better
+design. Don't add compatibility shims, deprecation paths or adapters for the old API, and don't
+keep an awkward structure only to avoid breaking callers. Every known downstream user will be
+ported. If a cleaner design needs an API break, make the break and record it in FEATURES.md.
+
 ## FEATURES.md is the source of truth
 
 [FEATURES.md](FEATURES.md) records every feature and its status, every known bug (with a stable ID
@@ -52,7 +59,8 @@ can't run the GUI, say so, and describe the manual check in the PR.
 ## Conventions and pitfalls
 
 - Match the surrounding code style; run `cargo fmt`.
-- egui and egui_extras versions are pinned to the same minor version (see the README compatibility table).
+- The egui version is listed in the README compatibility table. egui_extras is no longer used: the
+  view lays out rows and columns itself ([DESIGN-9](FEATURES.md#design-9-anchor-based-layout-without-egui_extras)).
 - **A breaking redesign is in progress: [DESIGN-8](FEATURES.md#design-8-core-contract-rework-tablemodel--cellui).**
   New code should move toward it, not extend the old `TableBackend`/`TableFrontend` API or the
   flag system. Don't patch bugs that DESIGN-8 removes structurally (see the roadmap).
@@ -61,6 +69,6 @@ can't run the GUI, say so, and describe the manual check in the PR.
     columns through the backend (`TableBackend::col_uid`), which is the cause of EDIT-4.
   - Editing state has two owners (view `SelectedRange.editing` and backend edit buffer). Any code
     path that leaves edit mode must commit or cancel in the backend too.
-  - Row heights are synced from `OneShotFlags::row_set_updated`; mutating rows inside `show()`
-    (menus, key handlers) can desync them (VIEW-1). Never `unwrap()` `row_uid()`.
+  - The view's row order (`RowLayout`) is rebuilt on `OneShotFlags::row_set_updated` or a row
+    count change. Never `unwrap()` `row_uid()`.
 - Avoid usize underflow in selection math (`count - 1` with empty tables).

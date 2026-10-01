@@ -52,8 +52,11 @@ impl TableView {
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.selected_range = None;
         }
-        if !data.persistent_flags().is_read_only && ui.input(|i| i.key_pressed(Key::N)) {
-            data.create_row([]);
+        if !data.persistent_flags().is_read_only
+            && ui.input(|i| i.key_pressed(Key::N))
+            && let Some(row) = data.create_row([])
+        {
+            self.state.rows.reveal_row(row);
         }
         self.handle_selection_moves(data.row_count(), data, ui);
     }
@@ -330,9 +333,11 @@ impl TableView {
                 }
                 if up {
                     already_selected.move_up(shift);
+                    self.state.rows.reveal(already_selected.row_start());
                 }
                 if down {
                     already_selected.move_down(shift, row_count);
+                    self.state.rows.reveal(already_selected.row_end());
                 }
             } else {
                 if data.row_count() > 0 && data.used_columns().next().is_some() {

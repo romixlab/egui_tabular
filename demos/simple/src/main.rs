@@ -55,6 +55,11 @@ impl eframe::App for SimpleApp {
                 egui::widgets::global_theme_preference_buttons(ui);
 
                 ui.separator();
+
+                ui.checkbox(
+                    &mut self.config.use_heterogeneous_row_heights,
+                    "Variable row heights",
+                );
             });
         });
 
