@@ -960,7 +960,7 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
-| EDIT-10 | pending | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom `TableFrontend` UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
+| EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom `TableFrontend` UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 
 ---
