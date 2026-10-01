@@ -8,5 +8,6 @@ mod columns;
 mod editing;
 mod fixture;
 mod keyboard;
+mod model;
 mod paste;
 mod selection;

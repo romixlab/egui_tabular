@@ -1,6 +1,6 @@
 use crate::fixture::Table;
 use egui::{Key, Modifiers};
-use tabular_core::backend::TableBackend as _;
+use egui_tabular::TableModel as _;
 
 #[test]
 fn arrows_move_selection() {
@@ -41,7 +41,7 @@ fn n_appends_row() {
     let mut t = Table::grid(2, 2);
     t.hover("A1");
     t.press(Key::N);
-    assert_eq!(t.h.state().backend.row_count(), 3);
+    assert_eq!(t.h.state().table.row_count(), 3);
     // The new row is shown: its row number appears in the tool column.
     assert!(t.has("2"));
 }
@@ -62,7 +62,7 @@ fn keyboard_works_without_pointer_over_table() {
 fn arrows_with_zero_rows_dont_panic() {
     let mut t = Table::grid(2, 2);
     t.click("A1");
-    t.h.state_mut().backend.clear();
+    t.h.state_mut().table.clear().unwrap();
     t.h.run();
     t.h.hover_at(t.h.ctx.content_rect().center());
     t.press(Key::ArrowDown);

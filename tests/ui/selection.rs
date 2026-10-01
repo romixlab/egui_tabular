@@ -50,7 +50,6 @@ fn row_number_click_selects_row() {
 }
 
 #[test]
-#[ignore = "SEL-1: row selection is one column too wide"]
 fn row_selection_copies_exactly_the_row() {
     let mut t = Table::grid(2, 3);
     t.click("1");

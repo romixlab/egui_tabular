@@ -394,7 +394,7 @@ impl ColumnWidths {
 mod tests {
     use super::*;
 
-    fn layout(count: u32, height: f32) -> RowLayout {
+    fn layout(count: u64, height: f32) -> RowLayout {
         let mut l = RowLayout::default();
         l.set_metrics(height, false);
         l.sync((0..count).map(RowUid).collect());

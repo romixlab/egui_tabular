@@ -1,5 +1,4 @@
-use egui_tabular::table_view::TableViewConfig;
-use egui_tabular::{TableView, TabularRow};
+use egui_tabular::{TableView, TableViewConfig, TableViewOptions, TabularRow, VariantCellUi};
 
 #[derive(TabularRow)]
 struct UserRow {
@@ -11,14 +10,14 @@ struct UserRow {
 }
 
 struct DeriveRowApp {
-    backend: UserRowTabularBackend,
+    table: UserRowTable,
     viewer: TableView,
     config: TableViewConfig,
 }
 
 impl Default for DeriveRowApp {
     fn default() -> Self {
-        let backend = UserRowTabularBackend::new(vec![
+        let table = UserRowTable::new(vec![
             UserRow {
                 name: "Point A".to_string(),
                 x: 1,
@@ -39,8 +38,8 @@ impl Default for DeriveRowApp {
             },
         ]);
         Self {
-            backend,
-            viewer: TableView::new(),
+            table,
+            viewer: TableView::new(TableViewOptions::default()),
             config: Default::default(),
         }
     }
@@ -56,7 +55,7 @@ impl eframe::App for DeriveRowApp {
 
         egui::CentralPanel::default().show(ui, |ui| {
             self.viewer
-                .show(&mut self.backend, &mut self.config, None, ui, ui.id());
+                .show(ui, &mut self.table, &mut VariantCellUi, &mut self.config);
         });
     }
 }

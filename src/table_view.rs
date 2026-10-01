@@ -5,21 +5,24 @@ mod scroll_bar;
 mod state;
 mod tool_column;
 
-use crate::frontend::TableFrontend;
+use crate::cell_ui::{CellSlot, CellUi, RowCells};
+use crate::commands::TableCommand;
 use crate::table_view::layout::{ColumnKey, MAX_AUTO_COLUMN_WIDTH};
-use crate::table_view::state::SelectedRange;
+use crate::table_view::state::{EditBuffer, SelectedRange};
 pub use config::TableViewConfig;
 use egui::emath::GuiRounding;
 use egui::epaint::{PathShape, PathStroke};
 use egui::scroll_area::ScrollSource;
 use egui::{
-    Align, CornerRadius, CursorIcon, Id, Key, Label, Layout, PointerButton, PopupAnchor, Pos2,
-    Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, TextWrapMode, Tooltip, Ui,
-    UiBuilder, UiKind, UiStackInfo, Vec2,
+    Align, Color32, CornerRadius, CursorIcon, Id, Key, Label, Layout, PointerButton, PopupAnchor,
+    Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, TextWrapMode,
+    Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
 };
-use std::collections::HashMap;
-use tabular_core::backend::{BackendColumn, OneShotFlags, TableBackend, VisualRowIdx};
-use tabular_core::{CellCoord, ColumnUid};
+use std::collections::{HashMap, HashSet};
+use tabular_core::{
+    Capabilities, CellCoord, CellLevel, ColumnInfo, ColumnUid, ModelError, RowPosition, RowUid,
+    TableModel,
+};
 use tap::Tap;
 
 /// Body height used when the parent `Ui` has unbounded height, e.g. inside a vertical `ScrollArea`.
@@ -65,7 +68,7 @@ impl Slot {
 /// Child `Ui` for one cell, laid out top-down inside `rect` minus the grid padding. It is clipped
 /// to the column, and also to `rect`'s height if `clip_height` is set. With `measure` set the contents may
 /// use up to [`MAX_AUTO_COLUMN_WIDTH`], so that an auto-sized column can grow to fit them.
-fn cell_ui(
+fn cell_child_ui(
     parent: &mut Ui,
     grid: &Grid,
     rect: Rect,
@@ -113,61 +116,176 @@ fn finish_cell(mut ui: Ui, rect: Rect) -> Response {
     ui.response()
 }
 
+/// View settings chosen by the app. User preferences live in [`TableViewConfig`].
+pub struct TableViewOptions {
+    /// Salts every id of the view, so that several tables can share a `Ui`.
+    pub id_salt: Id,
+    /// Height limit; by default the table fills the available height.
+    pub max_height: Option<f32>,
+    /// Show the row number column with the row and table menus.
+    pub tool_column: bool,
+    /// Disallow changes to the data, on top of what the model allows. Skipping stays allowed.
+    pub read_only: bool,
+    /// Choices of the combo box above each column. No combo boxes if empty.
+    pub column_mapping_choices: Vec<String>,
+}
+
+impl Default for TableViewOptions {
+    fn default() -> Self {
+        TableViewOptions {
+            id_salt: Id::new("egui_tabular"),
+            max_height: None,
+            tool_column: true,
+            read_only: false,
+            column_mapping_choices: vec![],
+        }
+    }
+}
+
+/// What happened during [`TableView::show`].
+pub struct TableViewOutput {
+    pub response: Response,
+    pub events: Vec<TableEvent>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TableEvent {
+    /// Rows touched by the selection, in view order. Empty when the selection was cleared.
+    SelectionChanged {
+        rows: Vec<RowUid>,
+    },
+    /// An edited value was written to the model.
+    CellCommitted(CellCoord),
+    /// An edit was left without writing the value.
+    EditCancelled(CellCoord),
+    /// The model refused a change.
+    CommandFailed {
+        command: Box<TableCommand>,
+        error: ModelError,
+    },
+    ColumnMappingChanged(ColumnUid),
+    ColumnsReordered,
+    RowsCreated(Vec<RowUid>),
+    /// Feedback for the user, e.g. for a toast or a status line.
+    Message {
+        level: CellLevel,
+        text: String,
+    },
+}
+
+/// Shows a [`TableModel`]. Owns all presentation state: column order and widths, row order and
+/// scroll position, selection and the value being edited.
 pub struct TableView {
+    options: TableViewOptions,
     state: state::State,
 }
 
 impl Default for TableView {
     fn default() -> Self {
-        Self::new()
+        Self::new(TableViewOptions::default())
     }
 }
 
 impl TableView {
-    pub fn new() -> Self {
+    pub fn new(options: TableViewOptions) -> Self {
         TableView {
+            options,
             state: state::State::default(),
         }
     }
 
-    pub fn show<T: TableFrontend + TableBackend>(
+    pub fn options(&self) -> &TableViewOptions {
+        &self.options
+    }
+
+    pub fn options_mut(&mut self) -> &mut TableViewOptions {
+        &mut self.options
+    }
+
+    /// Show `model`, with cells drawn and edited by `cell_ui` (e.g. [`VariantCellUi`](crate::VariantCellUi)).
+    ///
+    /// Changes the user makes are applied to `model` during this call, but never while the table
+    /// is being drawn.
+    pub fn show<M: TableModel, C: CellUi<M>>(
         &mut self,
-        table: &mut T,
+        ui: &mut Ui,
+        model: &mut M,
+        cell_ui: &mut C,
         config: &mut TableViewConfig,
-        max_height: Option<f32>,
+    ) -> TableViewOutput {
+        let id = ui.make_persistent_id(self.options.id_salt);
+        let caps = self.capabilities(model);
+        let prev_selected_range = self.state.selected_range;
+        self.sync_model(model);
+        let response = self.show_table(ui, id, caps, model, cell_ui, config);
+        self.apply_commands(model);
+        self.state.end_stale_edit();
+
+        if self.state.selected_range != prev_selected_range {
+            let rows = self
+                .state
+                .selected_range
+                .map(|r| {
+                    (r.row_start()..=r.row_end())
+                        .filter_map(|idx| self.state.rows.rows().get(idx).copied())
+                        .collect()
+                })
+                .unwrap_or_default();
+            self.state
+                .events
+                .push(TableEvent::SelectionChanged { rows });
+        }
+        TableViewOutput {
+            response,
+            events: std::mem::take(&mut self.state.events),
+        }
+    }
+
+    fn capabilities(&self, model: &impl TableModel) -> Capabilities {
+        let caps = model.capabilities();
+        if self.options.read_only {
+            caps.read_only()
+        } else {
+            caps
+        }
+    }
+
+    fn show_table<M: TableModel, C: CellUi<M>>(
+        &mut self,
         ui: &mut Ui,
         id: Id,
+        caps: Capabilities,
+        model: &mut M,
+        cell_ui: &mut C,
+        config: &mut TableViewConfig,
     ) -> Response {
-        let mut is_no_columns = self.state.columns_ordered.is_empty();
-        let prev_selected_range = self.state.selected_range;
         let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
-        let is_read_only = table.persistent_flags().is_read_only;
-        if pointer_over_table && !is_read_only && !self.state.is_editing() {
-            self.handle_paste(is_no_columns, table, ui);
+        if pointer_over_table && caps.edit_cells && !self.state.is_editing() {
+            let is_no_columns = self.state.columns_ordered.is_empty();
+            self.handle_paste(is_no_columns, caps, ui);
+            self.apply_commands(model);
         }
 
-        self.check_col_set_updated(table, &mut is_no_columns);
-        self.sync_rows(table);
-
-        if is_no_columns {
-            table.one_shot_flags_archive();
-            *table.one_shot_flags_internal_mut() = OneShotFlags::zero();
-            if ui.button("Create column").clicked() {
-                table.create_column();
+        if self.state.columns_ordered.is_empty() {
+            if caps.create_columns && ui.button("Create column").clicked() {
+                self.state.commands.push(TableCommand::CreateColumn);
             }
             return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
         if pointer_over_table && !self.state.is_editing() {
-            self.handle_key_input(table, ui);
+            self.handle_key_input(model, cell_ui, caps, ui);
         } else if pointer_over_table && self.state.is_editing() {
-            self.handle_key_input_when_editing(table, ui);
+            self.handle_key_input_when_editing(ui);
         }
-        self.handle_paste_continue(table, id, ui);
+        self.handle_paste_continue(id, ui);
+        // Apply what the input queued, so that the table shows the result in this frame.
+        self.apply_commands(model);
 
         let columns = core::mem::take(&mut self.state.columns_ordered);
-        let show_tool_column = true;
-        let keys: Vec<ColumnKey> = show_tool_column
+        let keys: Vec<ColumnKey> = self
+            .options
+            .tool_column
             .then_some(ColumnKey::Tool)
             .into_iter()
             .chain(columns.iter().map(|uid| ColumnKey::Data(*uid)))
@@ -181,7 +299,10 @@ impl TableView {
 
         // Fill the available height unless capped by max_height.
         let available = ui.available_rect_before_wrap();
-        let mut height = max_height.map_or(available.height(), |m| m.min(available.height()));
+        let mut height = self
+            .options
+            .max_height
+            .map_or(available.height(), |m| m.min(available.height()));
         if !height.is_finite() {
             height = DEFAULT_MAX_HEIGHT;
         }
@@ -271,15 +392,22 @@ impl TableView {
                             clip,
                             id,
                         };
-                        let body_top =
-                            self.show_header(table, config, ui, &grid, top, &mut swap_columns);
-                        // "Clear" in the header menu may have removed rows (VIEW-1), and a sync
-                        // can move the anchor (stick to bottom), so clamp it again before layout.
-                        self.sync_rows(table);
-                        self.state.rows.normalize(body_height);
-                        let bottom = self.show_body(
-                            table,
+                        let body_top = self.show_header(
+                            model,
+                            cell_ui,
                             config,
+                            caps,
+                            ui,
+                            &grid,
+                            top,
+                            &columns,
+                            &mut swap_columns,
+                        );
+                        let bottom = self.show_body(
+                            model,
+                            cell_ui,
+                            config,
+                            caps,
                             ui,
                             &grid,
                             Rangef::new(body_top, body_top + body_height),
@@ -310,42 +438,51 @@ impl TableView {
         self.state.columns_ordered = columns.tap_mut(|columns| {
             if let Some((c1, c2)) = swap_columns {
                 Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
+                self.state.events.push(TableEvent::ColumnsReordered);
             }
         });
 
-        self.check_col_set_updated(table, &mut is_no_columns);
-
-        if table.row_count() == 0 {
+        if self.state.rows.len() == 0 && caps.create_rows {
             let create_row = ui.button("Add row");
-            if create_row.clicked()
-                && let Some(row) = table.create_row([])
-            {
-                self.state.rows.reveal_row(row);
+            if create_row.clicked() {
+                self.state.commands.push(TableCommand::CreateRows {
+                    at: RowPosition::Append,
+                    count: 1,
+                });
             }
             create_row.on_hover_text(
                 "When table is not empty, right click tool column cell to create more rows",
             );
         }
-        self.sync_rows(table); // if modified rows during this render cycle
+        response
+    }
 
-        if self.state.selected_range != prev_selected_range {
-            let rows_selected = if let Some(r) = self.state.selected_range {
-                let mut rows_selected = vec![];
-                for row_idx in r.row_start()..=r.row_end() {
-                    if let Some(row_uid) = table.row_uid(VisualRowIdx(row_idx)) {
-                        rows_selected.push(row_uid);
+    /// Apply the queued commands, then sync with the changed model.
+    fn apply_commands(&mut self, model: &mut impl TableModel) {
+        for command in std::mem::take(&mut self.state.commands) {
+            match command.apply(model) {
+                Ok(applied) => {
+                    if let TableCommand::Set { coord, .. } = &command {
+                        self.state.events.push(TableEvent::CellCommitted(*coord));
+                    }
+                    if let Some(row) = applied.created_rows.last()
+                        && matches!(command, TableCommand::CreateRows { .. })
+                    {
+                        self.state.rows.reveal_row(*row);
+                    }
+                    if !applied.created_rows.is_empty() {
+                        self.state
+                            .events
+                            .push(TableEvent::RowsCreated(applied.created_rows));
                     }
                 }
-                rows_selected
-            } else {
-                vec![]
-            };
-            table.one_shot_flags_internal_mut().rows_selected = Some(rows_selected);
+                Err(error) => self.state.events.push(TableEvent::CommandFailed {
+                    command: Box::new(command),
+                    error,
+                }),
+            }
         }
-
-        table.one_shot_flags_archive();
-        *table.one_shot_flags_internal_mut() = OneShotFlags::zero();
-        response
+        self.sync_model(model);
     }
 
     /// Scroll rows with the mouse wheel. The delta is consumed only if the table actually
@@ -370,26 +507,48 @@ impl TableView {
         }
     }
 
-    /// Rebuild the display order when the backend reports a row set change, or when the row count
-    /// changed without it being reported.
-    fn sync_rows(&mut self, table: &impl TableBackend) {
-        let count = table.row_count();
-        if table.one_shot_flags_internal().row_set_updated || self.state.rows.len() != count {
-            let rows = (0..count)
-                .filter_map(|i| table.row_uid(VisualRowIdx(i)))
+    /// Pick up column and row changes from the model's revision counters. Columns the user moved
+    /// keep their place; new columns are appended. Rows are also resynced when the row count
+    /// differs, in case the model forgot to bump `revision.rows`.
+    fn sync_model(&mut self, model: &impl TableModel) {
+        let rev = model.revision();
+        let last = self.state.revision;
+        if last.is_none_or(|l| l.columns != rev.columns || l.skips != rev.skips) {
+            let natural: Vec<ColumnUid> = model.columns().collect();
+            let present: HashSet<ColumnUid> = natural.iter().copied().collect();
+            let mut ordered: Vec<ColumnUid> = self
+                .state
+                .columns_ordered
+                .iter()
+                .copied()
+                .filter(|col| present.contains(col))
                 .collect();
-            self.state.rows.sync(rows);
+            let known: HashSet<ColumnUid> = ordered.iter().copied().collect();
+            ordered.extend(natural.iter().filter(|col| !known.contains(col)));
+            self.state.columns_ordered = ordered;
+            self.state.columns = natural
+                .iter()
+                .filter_map(|col| model.column(*col).map(|info| (*col, info.clone())))
+                .collect();
         }
+        if last.is_none_or(|l| l.rows != rev.rows) || self.state.rows.len() != model.row_count() {
+            self.state.rows.sync(model.rows().collect());
+        }
+        self.state.revision = Some(rev);
     }
 
     /// Lays out the header row at `top`. Returns the y coordinate where the body starts.
-    fn show_header<T: TableFrontend + TableBackend>(
+    #[allow(clippy::too_many_arguments)]
+    fn show_header<M: TableModel, C: CellUi<M>>(
         &mut self,
-        table: &mut T,
+        model: &mut M,
+        cell_ui: &mut C,
         config: &mut TableViewConfig,
+        caps: Capabilities,
         ui: &mut Ui,
         grid: &Grid,
         top: f32,
+        columns: &[ColumnUid],
         swap_columns: &mut Option<(ColumnUid, ColumnUid)>,
     ) -> f32 {
         let Grid {
@@ -406,7 +565,7 @@ impl TableView {
 
         let mut cells = Vec::with_capacity(slots.len());
         for slot in slots {
-            let mut cell = cell_ui(
+            let mut cell = cell_child_ui(
                 ui,
                 grid,
                 slot.rect(estimate),
@@ -418,24 +577,25 @@ impl TableView {
             match slot.key {
                 ColumnKey::Tool => Self::draw_table_icon(&mut cell),
                 ColumnKey::Data(column_uid) => {
-                    if let Some(backend_column) = self.state.columns.get(&column_uid) {
+                    if let Some(column) = self.state.columns.get(&column_uid) {
                         let ui = &mut cell;
-                        table.custom_column_ui(column_uid, ui, id);
+                        cell_ui.header_ui(model, column_uid, ui);
                         let changed = Self::column_mapping_ui(
-                            table.column_mapping_choices(),
+                            &self.options.column_mapping_choices,
                             column_uid,
                             &mut config.column_mapped_to,
                             ui,
                             id,
                         );
                         if changed {
-                            table.one_shot_flags_internal_mut().column_mapping_changed =
-                                Some(column_uid);
+                            self.state
+                                .events
+                                .push(TableEvent::ColumnMappingChanged(column_uid));
                         }
-                        let col_name = if backend_column.name.is_empty() {
+                        let col_name = if column.name.is_empty() {
                             "No name"
                         } else {
-                            backend_column.name.as_str()
+                            column.name.as_str()
                         };
                         let col_name = Label::new(RichText::new(col_name).strong().monospace())
                             .selectable(false)
@@ -443,13 +603,10 @@ impl TableView {
                         ui.add(col_name)
                             .on_hover_cursor(CursorIcon::Grab)
                             .on_hover_ui(|ui| {
-                                Self::column_name_hover_ui(backend_column, ui);
+                                Self::column_name_hover_ui(column, ui);
                             });
-                        if !backend_column.ty.is_empty() {
-                            ui.add(
-                                Label::new(backend_column.ty.as_str())
-                                    .wrap_mode(TextWrapMode::Extend),
-                            );
+                        if let Some(ty) = column.type_text() {
+                            ui.add(Label::new(ty.as_ref()).wrap_mode(TextWrapMode::Extend));
                         }
                     }
                 }
@@ -477,17 +634,23 @@ impl TableView {
             let resp = finish_cell(cell, slot.rect(y_range));
             let column_uid = match slot.key {
                 ColumnKey::Tool => {
+                    let mut export = false;
                     resp.context_menu(|ui| {
-                        if let Some(row) = tool_column::tool_column_header_menu_ui(ui, table) {
-                            self.state.rows.reveal_row(row);
-                        }
+                        export = tool_column::tool_column_header_menu_ui(
+                            ui,
+                            caps,
+                            &mut self.state.commands,
+                        );
                     });
+                    if export {
+                        crate::util::export_csv(model, cell_ui, columns);
+                    }
                     resp.on_hover_text("Tool column, right click for actions");
                     continue;
                 }
                 ColumnKey::Data(column_uid) => column_uid,
             };
-            let Some(backend_column) = self.state.columns.get(&column_uid) else {
+            let Some(column) = self.state.columns.get(&column_uid) else {
                 continue;
             };
 
@@ -503,7 +666,7 @@ impl TableView {
                 )
                 .gap(12.0)
                 .show(|ui| {
-                    ui.label(backend_column.name.as_str());
+                    ui.label(column.name.as_str());
                 });
             }
 
@@ -521,7 +684,7 @@ impl TableView {
                 *swap_columns = Some((column_uid, *payload));
             }
 
-            Self::column_context_menu(backend_column, column_uid, resp, table);
+            Self::column_context_menu(column, column_uid, resp, caps, &mut self.state.commands);
         }
 
         painter.hline(
@@ -534,10 +697,13 @@ impl TableView {
 
     /// Lays out rows downwards from the scroll anchor until the body is full. Returns the bottom
     /// of the body: the bottom of the last row if the table fits, otherwise `body.max`.
-    fn show_body<T: TableFrontend + TableBackend>(
+    #[allow(clippy::too_many_arguments)]
+    fn show_body<M: TableModel, C: CellUi<M>>(
         &mut self,
-        table: &mut T,
+        model: &mut M,
+        cell_ui: &mut C,
         config: &TableViewConfig,
+        caps: Capabilities,
         ui: &mut Ui,
         grid: &Grid,
         body: Rangef,
@@ -563,7 +729,6 @@ impl TableView {
         let hover_pos = ctx
             .pointer_hover_pos()
             .filter(|_| ui.rect_contains_pointer(clip));
-        let is_read_only = table.persistent_flags().is_read_only;
         let s = &mut self.state;
         let mut commit_edit = None;
         let mut repaint = false;
@@ -578,9 +743,13 @@ impl TableView {
                 .selected_range
                 .map(|r| r.is_editing() && r.contains_row(row_idx))
                 .unwrap_or(false);
+            let row_skipped = model.is_row_skipped(row_uid);
             let row_bg = painter.add(Shape::Noop);
 
-            let mut cells = Vec::with_capacity(slots.len());
+            // Create every cell first: the tool cell, the editor, then the row builder fills the rest.
+            let mut tool_cell = None;
+            let mut data_cells = Vec::with_capacity(columns.len());
+            let mut data_slots = Vec::with_capacity(columns.len());
             for (slot_idx, slot) in slots.iter().enumerate() {
                 let cell_bg = painter.add(Shape::Noop);
                 let col_idx = slot_idx.wrapping_sub(first_data_slot);
@@ -590,7 +759,7 @@ impl TableView {
                             r.is_editing() && r == SelectedRange::single_cell(row_idx, col_idx)
                         })
                         .unwrap_or(false);
-                let mut cell = cell_ui(
+                let mut cell = cell_child_ui(
                     ui,
                     grid,
                     slot.rect(estimate),
@@ -604,21 +773,37 @@ impl TableView {
                     cell.style_mut().visuals.override_text_color =
                         Some(visual.selection.stroke.color);
                 }
-                match slot.key {
+                let col_uid = match slot.key {
                     ColumnKey::Tool => {
                         cell.add(Label::new(format!("{row_idx}")).selectable(false));
+                        tool_cell = Some((slot, cell, cell_bg));
+                        continue;
                     }
-                    ColumnKey::Data(col_uid) => {
-                        let coord = CellCoord { row_uid, col_uid };
-                        cell.style_mut()
-                            .visuals
-                            .widgets
-                            .noninteractive
-                            .fg_stroke
-                            .color = visual.strong_text_color();
-                        if is_editing_current_cell {
-                            let _resp = table.show_cell_editor(coord, &mut cell, id);
-                            if cell.input(|i| i.key_pressed(Key::Enter)) {
+                    ColumnKey::Data(col_uid) => col_uid,
+                };
+                let coord = CellCoord { row_uid, col_uid };
+                let skipped = row_skipped || s.columns.get(&col_uid).is_some_and(|c| c.is_skipped);
+                if skipped && !is_editing_cell_on_this_row {
+                    cell.style_mut().visuals.override_text_color = Some(visual.weak_text_color());
+                }
+                let mut shown = true;
+                if is_editing_current_cell {
+                    if s.edit.as_ref().map(|e| e.coord) != Some(coord) {
+                        s.edit = cell_ui.begin_edit(model, coord).map(|value| EditBuffer {
+                            coord,
+                            value,
+                            first_frame: true,
+                        });
+                    }
+                    match &mut s.edit {
+                        Some(edit) => {
+                            shown = false;
+                            let r = cell_ui.show_editor(model, coord, &mut edit.value, &mut cell);
+                            if edit.first_frame {
+                                r.response.request_focus();
+                                edit.first_frame = false;
+                            }
+                            if r.commit || cell.input(|i| i.key_pressed(Key::Enter)) {
                                 commit_edit = Some(coord);
                             }
                             if cell.input(|i| i.key_pressed(Key::Escape))
@@ -626,20 +811,37 @@ impl TableView {
                             {
                                 r.set_editing(None);
                             }
-                        } else {
-                            table.show_cell_view(coord, &mut cell, id);
+                        }
+                        // Not editable: show the value instead.
+                        None => {
+                            if let Some(r) = &mut s.selected_range {
+                                r.set_editing(None);
+                            }
                         }
                     }
                 }
-                cells.push((slot_idx, slot, cell, cell_bg, is_editing_current_cell));
+                data_cells.push(CellSlot {
+                    ui: cell,
+                    shown,
+                    level: None,
+                    tooltips: vec![],
+                });
+                data_slots.push((slot, col_idx, cell_bg, is_editing_current_cell, skipped));
             }
+            cell_ui.show_row(
+                model,
+                row_uid,
+                &mut RowCells::new(row_uid, columns, &mut data_cells),
+            );
 
             let row_height = if uniform {
                 estimate.span()
             } else {
-                let content = cells
+                let content = tool_cell
                     .iter()
-                    .map(|(_, _, c, _, _)| c.min_rect().height())
+                    .map(|(_, c, _)| c)
+                    .chain(data_cells.iter().map(|c| &c.ui))
+                    .map(|c| c.min_rect().height())
                     .fold(0.0, f32::max);
                 (content + 2.0 * pad.y).max(min_row_height).round_ui()
             };
@@ -663,40 +865,41 @@ impl TableView {
                 );
             }
 
-            for (slot_idx, slot, cell, cell_bg, is_editing_current_cell) in cells {
+            if let Some((slot, cell, _)) = tool_cell {
+                s.column_widths
+                    .observe(slot.key, cell.min_rect().width() + 2.0 * pad.x);
+                let resp = finish_cell(cell, slot.rect(y_range));
+                resp.context_menu(|ui| {
+                    tool_column::tool_column_row_menu_ui(ui, model, caps, row_uid, &mut s.commands);
+                });
+                if resp.clicked() {
+                    // Leaving the cell commits the edit (EDIT-1).
+                    if let Some(coord) = s.selected_range.and_then(|r| r.editing()) {
+                        commit_edit = Some(coord);
+                    }
+                    if let Some(r) = &mut s.selected_range
+                        && ctx.input(|i| i.modifiers.shift)
+                    {
+                        r.stretch_multi_row(row_idx, columns.len());
+                    } else {
+                        s.selected_range = Some(SelectedRange::single_row(row_idx, columns.len()));
+                    }
+                }
+            }
+
+            for (cell, (slot, col_idx, cell_bg, is_editing_current_cell, skipped)) in
+                data_cells.into_iter().zip(data_slots)
+            {
                 if !is_editing_current_cell {
                     s.column_widths
-                        .observe(slot.key, cell.min_rect().width() + 2.0 * pad.x);
+                        .observe(slot.key, cell.ui.min_rect().width() + 2.0 * pad.x);
                 }
                 let cell_rect = slot.rect(y_range);
-                let resp = finish_cell(cell, cell_rect);
-                let col_idx = slot_idx.wrapping_sub(first_data_slot);
-                let col_uid = match slot.key {
-                    ColumnKey::Tool => {
-                        resp.context_menu(|ui| {
-                            if let Some(row) =
-                                tool_column::tool_column_row_menu_ui(ui, table, row_uid)
-                            {
-                                s.rows.reveal_row(row);
-                            }
-                        });
-                        if resp.clicked() {
-                            if let Some(r) = &mut s.selected_range {
-                                if ctx.input(|i| i.modifiers.shift) {
-                                    r.stretch_multi_row(row_idx, columns.len());
-                                } else {
-                                    *r = SelectedRange::single_row(row_idx, columns.len());
-                                }
-                            } else {
-                                s.selected_range =
-                                    Some(SelectedRange::single_row(row_idx, columns.len()));
-                            }
-                        }
-                        continue;
-                    }
-                    ColumnKey::Data(col_uid) => col_uid,
+                let content_rect = cell.ui.max_rect();
+                let resp = finish_cell(cell.ui, cell_rect);
+                let ColumnKey::Data(col_uid) = slot.key else {
+                    continue;
                 };
-
                 let coord = CellCoord { row_uid, col_uid };
                 let current_cell = SelectedRange::single_cell(row_idx, col_idx);
                 let (
@@ -714,9 +917,15 @@ impl TableView {
                     })
                     .unwrap_or((false, false, false));
 
+                let meta = model.metadata(coord);
+                let level = cell.level.or_else(|| meta.as_ref().and_then(|m| m.level));
                 let in_selection = is_current_cell_in_selection && !is_editing_cell_on_this_row;
-                let color = if let Some(backend_color) = table.cell_color(coord) {
-                    Some(backend_color.gamma_multiply(if in_selection { 0.4 } else { 0.2 }))
+                let color = if let Some(level) = level {
+                    Some(level_color(level, visual).gamma_multiply(if in_selection {
+                        0.4
+                    } else {
+                        0.2
+                    }))
                 } else if in_selection {
                     // Light orange background inside selection
                     Some(visual.warn_fg_color.gamma_multiply(0.2))
@@ -730,14 +939,22 @@ impl TableView {
                     );
                 }
 
-                if let Some(corner) = table.cell_corner(coord) {
+                if let Some(corner) = meta.as_ref().and_then(|m| m.corner) {
                     let r = cell_rect.right_top();
                     painter.add(PathShape {
                         points: vec![Pos2::new(r.x - 10.0, r.y), r, Pos2::new(r.x, r.y + 10.0)],
                         closed: true,
-                        fill: corner,
+                        fill: level_color(corner, visual),
                         stroke: PathStroke::NONE,
                     });
+                }
+
+                if skipped && !is_editing_current_cell {
+                    // Cross out the cell.
+                    let stroke = Stroke::new(1.0, visual.weak_text_color());
+                    let r = content_rect;
+                    painter.line_segment([r.min, r.max], stroke);
+                    painter.line_segment([r.left_bottom(), r.right_top()], stroke);
                 }
 
                 // Lines on the first and last row of selection
@@ -757,7 +974,7 @@ impl TableView {
                         if ctx.input(|i| i.modifiers.shift) {
                             r.stretch_to(row_idx, col_idx);
                         } else if *r == current_cell {
-                            if !is_read_only {
+                            if caps.edit_cells {
                                 r.set_editing(Some(coord));
                             }
                         } else {
@@ -770,7 +987,11 @@ impl TableView {
                         s.selected_range = Some(current_cell);
                     }
                 }
-                let tooltips = table.cell_tooltips(coord);
+                let tooltips: Vec<&str> = meta
+                    .iter()
+                    .flat_map(|m| m.tooltips.iter().map(|t| t.as_str()))
+                    .chain(cell.tooltips.iter().map(String::as_str))
+                    .collect();
                 if !tooltips.is_empty() {
                     resp.on_hover_ui(|ui| {
                         ui.vertical(|ui| {
@@ -792,10 +1013,7 @@ impl TableView {
         }
 
         if let Some(coord) = commit_edit {
-            table.commit_cell_edit(coord);
-            if let Some(r) = &mut s.selected_range {
-                r.set_editing(None);
-            }
+            s.commit_edit(coord);
         }
 
         if s.rows.overflows() {
@@ -855,30 +1073,12 @@ impl TableView {
         p.line_segment([rect.left_center(), rect.right_center()], stroke);
     }
 
-    fn check_col_set_updated(&mut self, table: &mut impl TableBackend, is_no_columns: &mut bool) {
-        if table.one_shot_flags_internal().columns_reset {
-            // log::trace!("Updating col info");
-            self.state.columns_ordered = table.used_columns().collect();
-            self.state.columns_ordered.sort();
-            *is_no_columns = self.state.columns_ordered.is_empty();
-        }
-        if table.one_shot_flags_internal().columns_reset
-            || table.one_shot_flags_internal().columns_changed
-        {
-            self.state.columns.clear();
-            for col_uid in self.state.columns_ordered.iter() {
-                if let Some(info) = table.column_info(*col_uid) {
-                    self.state.columns.insert(*col_uid, info.clone());
-                }
-            }
-        }
-    }
-
     fn column_context_menu(
-        col: &BackendColumn,
+        col: &ColumnInfo,
         col_uid: ColumnUid,
         resp: Response,
-        data: &mut impl TableBackend,
+        caps: Capabilities,
+        commands: &mut Vec<TableCommand>,
     ) {
         resp.context_menu(|ui| {
             if col.is_sortable {
@@ -888,25 +1088,28 @@ impl TableView {
                 if ui.button("Sort descending").clicked() {
                     ui.close_kind(UiKind::Menu);
                 }
-                if ui.button("Add column").clicked() {
-                    data.create_column();
-                    ui.close_kind(UiKind::Menu);
-                }
+            }
+            if caps.create_columns && ui.button("Add column").clicked() {
+                commands.push(TableCommand::CreateColumn);
+                ui.close_kind(UiKind::Menu);
             }
             if ui.button("Hide").clicked() {
                 ui.close_kind(UiKind::Menu);
             }
-            if data.persistent_flags().are_cols_skippable {
-                let mut skipped = data.is_col_skipped(col_uid);
+            if caps.skip_columns {
+                let mut skipped = col.is_skipped;
                 if ui.checkbox(&mut skipped, "Skip").changed() {
-                    data.skip_col(col_uid, skipped);
+                    commands.push(TableCommand::SkipColumn {
+                        col: col_uid,
+                        skipped,
+                    });
                     ui.close_kind(UiKind::Menu);
                 }
             }
         });
     }
 
-    fn column_name_hover_ui(col: &BackendColumn, ui: &mut Ui) {
+    fn column_name_hover_ui(col: &ColumnInfo, ui: &mut Ui) {
         if col.is_required {
             ui.label("Required column, synonyms:");
             for synonym_name in &col.synonyms {
@@ -1004,5 +1207,16 @@ impl TableView {
             resp.on_hover_text("Cannot map more than one column to the same entity");
         }
         changed
+    }
+}
+
+/// Color of a cell highlight in the current theme.
+fn level_color(level: CellLevel, visuals: &Visuals) -> Color32 {
+    match level {
+        CellLevel::Info => visuals.hyperlink_color,
+        CellLevel::Warning => visuals.warn_fg_color,
+        CellLevel::Error => visuals.error_fg_color,
+        CellLevel::Changed => visuals.selection.bg_fill,
+        CellLevel::Custom(rgb) => Color32::from_rgb(rgb.r, rgb.g, rgb.b),
     }
 }

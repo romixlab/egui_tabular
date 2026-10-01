@@ -1,99 +1,107 @@
-use std::collections::HashMap;
-
 use crate::TableView;
-use crate::frontend::TableFrontend;
+use crate::cell_ui::CellUi;
+use crate::commands::TableCommand;
+use crate::table_view::TableEvent;
 use crate::table_view::state::SelectedRange;
 use egui::{Event, Id, Key, Modal, Ui};
 use itertools::Itertools;
-use log::warn;
-use rvariant::Variant;
-use tabular_core::backend::{TableBackend, VisualColIdx, VisualRowIdx};
-use tabular_core::{ColumnUid, RowUid};
+use tabular_core::{
+    Capabilities, CellCoord, CellLevel, ColumnUid, RowPosition, RowUid, TableModel,
+};
 
 impl TableView {
-    pub(crate) fn handle_key_input<T: TableBackend>(&mut self, data: &mut T, ui: &mut Ui) {
+    pub(crate) fn handle_key_input<M: TableModel, C: CellUi<M>>(
+        &mut self,
+        model: &M,
+        cell_ui: &C,
+        caps: Capabilities,
+        ui: &mut Ui,
+    ) {
         if ui.input(|i| i.modifiers.ctrl && i.key_pressed(Key::C)) {
             // command+C don't work: https://github.com/emilk/egui/issues/4065
-            if let Some(selected) = self.state.selected_range {
-                let mut text = String::new();
-                for mono_row_idx in selected.row_start()..=selected.row_end() {
-                    let Some(row_uid) = data.row_uid(VisualRowIdx(mono_row_idx)) else {
-                        continue;
-                    };
-                    for mono_col_idx in selected.col_start()..=selected.col_end() {
-                        let Some(col_uid) = self.state.columns_ordered.get(mono_col_idx) else {
-                            continue;
-                        };
-                        if let Some(v) = data.get((row_uid, *col_uid).into()) {
-                            match v {
-                                Variant::Str(s) => text += s.as_str(),
-                                o => text += o.to_string().as_str(),
-                            }
-                        }
-                        if mono_col_idx != selected.col_end() {
-                            text += "\t";
-                        }
-                    }
-                    if mono_row_idx != selected.row_end() {
-                        text += "\n";
-                    }
-                }
-                if !text.is_empty() {
-                    ui.ctx().copy_text(text);
-                }
+            if let Some(text) = self.selection_text(model, cell_ui) {
+                ui.ctx().copy_text(text);
             }
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
             self.state.selected_range = Some(SelectedRange::rect(
                 self.state.columns_ordered.len(),
-                data.row_count(),
+                self.state.rows.len(),
             ));
         }
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.selected_range = None;
         }
-        if !data.persistent_flags().is_read_only
-            && ui.input(|i| i.key_pressed(Key::N))
-            && let Some(row) = data.create_row([])
-        {
-            self.state.rows.reveal_row(row);
+        if caps.create_rows && ui.input(|i| i.key_pressed(Key::N)) {
+            self.state.commands.push(TableCommand::CreateRows {
+                at: RowPosition::Append,
+                count: 1,
+            });
         }
-        self.handle_selection_moves(data.row_count(), data, ui);
+        self.handle_selection_moves(caps, ui);
     }
 
-    pub(crate) fn handle_key_input_when_editing<T: TableBackend + TableFrontend>(
-        &mut self,
-        data: &mut T,
-        ui: &mut Ui,
-    ) {
+    /// The selected cells as tab-separated text.
+    fn selection_text<M: TableModel, C: CellUi<M>>(
+        &self,
+        model: &M,
+        cell_ui: &C,
+    ) -> Option<String> {
+        let selected = self.state.selected_range?;
+        let cols: Vec<ColumnUid> = (selected.col_start()..=selected.col_end())
+            .filter_map(|idx| self.state.columns_ordered.get(idx).copied())
+            .collect();
+        let mut text = String::new();
+        for row_idx in selected.row_start()..=selected.row_end() {
+            let Some(row_uid) = self.state.rows.rows().get(row_idx).copied() else {
+                continue;
+            };
+            text += &crate::util::row_texts(model, cell_ui, row_uid, &cols).join("\t");
+            if row_idx != selected.row_end() {
+                text += "\n";
+            }
+        }
+        (!text.is_empty()).then_some(text)
+    }
+
+    pub(crate) fn handle_key_input_when_editing(&mut self, ui: &mut Ui) {
         if ui.input(|i| i.key_pressed(Key::Tab)) {
-            if let Some(already_selected) = &mut self.state.selected_range {
-                if let Some(coord) = already_selected.editing() {
-                    data.commit_cell_edit(coord);
-                }
-                already_selected.move_right(false, self.state.columns_ordered.len());
-                let row_uid = data.row_uid(VisualRowIdx(already_selected.row_start()));
-                let col_uid = data.col_uid(VisualColIdx(already_selected.col_start()));
-                if let (Some(row_uid), Some(col_uid)) = (row_uid, col_uid) {
-                    already_selected.set_editing(Some((row_uid, col_uid).into()));
-                }
+            if let Some(coord) = self.state.selected_range.and_then(|r| r.editing()) {
+                self.state.commit_edit(coord);
             }
+            if let Some(selected) = &mut self.state.selected_range {
+                selected.move_right(false, self.state.columns_ordered.len());
+            }
+            self.edit_selected_cell();
         }
 
-        if ui.input(|i| i.key_pressed(Key::Escape)) {
-            if let Some(already_selected) = &mut self.state.selected_range {
-                already_selected.set_editing(None);
-                data.cancel_edit();
-            }
+        if ui.input(|i| i.key_pressed(Key::Escape))
+            && let Some(selected) = &mut self.state.selected_range
+        {
+            selected.set_editing(None);
         }
     }
 
-    pub(crate) fn handle_paste(
-        &mut self,
-        paste_from_empty: bool,
-        data: &mut impl TableBackend,
-        ui: &mut Ui,
-    ) {
+    /// Start editing the selected cell, if a single cell is selected. The cell is taken from the
+    /// view's row and column order.
+    fn edit_selected_cell(&mut self) {
+        let Some(selected) = &mut self.state.selected_range else {
+            return;
+        };
+        if !selected.is_single_cell() {
+            return;
+        }
+        let row = self.state.rows.rows().get(selected.row_start());
+        let col = self.state.columns_ordered.get(selected.col_start());
+        if let (Some(row_uid), Some(col_uid)) = (row, col) {
+            selected.set_editing(Some(CellCoord {
+                row_uid: *row_uid,
+                col_uid: *col_uid,
+            }));
+        }
+    }
+
+    pub(crate) fn handle_paste(&mut self, paste_from_empty: bool, caps: Capabilities, ui: &mut Ui) {
         let paste = ui.input(|i| {
             i.events
                 .iter()
@@ -127,19 +135,26 @@ impl TableView {
         self.state.pasting_block_with_holes = !is_equal_lengths;
 
         if paste_from_empty {
+            if !(caps.create_columns && caps.create_rows) {
+                self.message(
+                    CellLevel::Warning,
+                    "This table can't create columns and rows to paste into",
+                );
+                return;
+            }
             self.state.selected_range = Some(SelectedRange::rect(
                 self.state.pasting_block_width,
                 rows.len(),
             ));
-            for _ in 0..self.state.pasting_block_width {
-                data.create_column();
-            }
-            self.state.columns_ordered = data.used_columns().collect();
-            self.state.columns_ordered.sort();
-            for _ in 0..rows.len() {
-                data.create_row([]);
-            }
-            data.one_shot_flags_internal_mut().reloaded = true;
+            self.state.commands.push(TableCommand::Paste {
+                rows: vec![],
+                create_rows: rows.len(),
+                columns: vec![],
+                create_columns: self.state.pasting_block_width,
+                block: rows,
+                repeat: false,
+            });
+            return;
         }
         if let Some(selected_range) = &self.state.selected_range {
             let selection_is_exact = rows.len() == selected_range.height()
@@ -147,25 +162,26 @@ impl TableView {
                 && is_equal_lengths;
             self.state.about_to_paste_rows = rows;
             if selection_is_exact {
-                self.paste_block(data);
+                self.paste_block();
             } else {
                 // ask user what to do in handle_paste_continue
                 self.state.create_rows_on_paste = false;
                 self.state.fill_with_same_on_paste = false;
                 self.state.create_cols_on_paste = false;
-                // modal.open();
             }
         } else {
-            warn!("Refusing to paste without selection"); // TODO: forward to toast
+            self.message(CellLevel::Info, "Select a cell to paste into");
         }
     }
 
-    pub(crate) fn handle_paste_continue(
-        &mut self,
-        data: &mut impl TableBackend,
-        id: Id,
-        ui: &mut Ui,
-    ) {
+    pub(super) fn message(&mut self, level: CellLevel, text: impl Into<String>) {
+        self.state.events.push(TableEvent::Message {
+            level,
+            text: text.into(),
+        });
+    }
+
+    pub(crate) fn handle_paste_continue(&mut self, id: Id, ui: &mut Ui) {
         if self.state.about_to_paste_rows.is_empty() {
             return;
         }
@@ -181,7 +197,6 @@ impl TableView {
             ui.set_width(250.);
             ui.heading("Paste");
             ui.horizontal(|ui| {
-                // modal.icon(ui, egui_modal::Icon::Warning);
                 ui.vertical(|ui| {
                     ui.add_space(8.0);
                     let with_holes = if self.state.pasting_block_with_holes {
@@ -231,86 +246,49 @@ impl TableView {
         });
 
         if should_paste {
-            self.paste_block(data);
+            self.paste_block();
         }
         if should_close || ui.input(|i| i.key_pressed(Key::Escape)) {
             self.state.about_to_paste_rows.clear();
         }
     }
 
-    pub(crate) fn paste_block(&mut self, data: &mut impl TableBackend) {
-        let Some(selected_range) = &self.state.selected_range else {
+    /// Queue pasting `about_to_paste_rows` into the selection, with the options of the paste dialog.
+    pub(crate) fn paste_block(&mut self) {
+        let Some(selected) = self.state.selected_range else {
             return;
         };
-        let mut row_ids: Vec<Option<RowUid>> = (0..selected_range.height())
-            .map(|mono_row_idx| {
-                data.row_uid(VisualRowIdx(mono_row_idx + selected_range.row_start()))
-            })
+        let block = std::mem::take(&mut self.state.about_to_paste_rows);
+        let rows: Vec<RowUid> = (selected.row_start()..=selected.row_end())
+            .filter_map(|idx| self.state.rows.rows().get(idx).copied())
             .collect();
-
-        if self.state.create_rows_on_paste
-            && self.state.about_to_paste_rows.len() > selected_range.height()
-        {
-            for _ in 0..self.state.about_to_paste_rows.len() - selected_range.height() {
-                row_ids.push(data.create_row(HashMap::new()));
-            }
-        }
-
-        let mut col_ids: Vec<Option<ColumnUid>> = (0..selected_range.width())
-            .map(|mono_col_idx| self.state.columns_ordered.get(mono_col_idx).map(|col| *col))
+        let columns: Vec<ColumnUid> = (selected.col_start()..=selected.col_end())
+            .filter_map(|idx| self.state.columns_ordered.get(idx).copied())
             .collect();
-
-        if self.state.create_adhoc_cols_on_paste {
-            for _ in 0..self.state.about_to_paste_rows[0].len() - selected_range.width() {
-                col_ids.push(data.create_column());
-            }
-        }
-        // let mut changed_coords = vec![];
-        // println!("row ids: {row_ids:?}");
-
-        if self.state.fill_with_same_on_paste {
-            for (row_id, row) in row_ids
-                .into_iter()
-                .zip(self.state.about_to_paste_rows.iter().cycle())
-            {
-                let Some(row_uid) = row_id else { continue };
-                for (col_id_ty, cell) in col_ids.iter().zip(row.iter().cycle()) {
-                    let Some(col_uid) = col_id_ty else {
-                        continue;
-                    };
-                    let coord = (row_uid, *col_uid).into();
-                    // changed_coords.push(coord);
-                    data.set(coord, Variant::Str(cell.clone()));
-                }
-            }
+        let create_rows = if self.state.create_rows_on_paste {
+            block.len().saturating_sub(selected.height())
         } else {
-            for (row_id, row) in row_ids
-                .into_iter()
-                .zip(self.state.about_to_paste_rows.iter())
-            {
-                let Some(row_id) = row_id else { continue };
-                for (col_id_ty, cell) in col_ids.iter().zip(row.iter()) {
-                    let Some(col_uid) = col_id_ty else {
-                        continue;
-                    };
-                    let coord = (row_id, *col_uid).into();
-                    // changed_coords.push(coord);
-                    data.set(coord, Variant::Str(cell.clone()));
-                }
-            }
-        }
-
-        // data.one_shot_flags_mut().cells_updated = changed_coords;
-        self.state.about_to_paste_rows.clear();
+            0
+        };
+        let create_columns = if self.state.create_adhoc_cols_on_paste {
+            self.state
+                .pasting_block_width
+                .saturating_sub(selected.width())
+        } else {
+            0
+        };
+        self.state.commands.push(TableCommand::Paste {
+            rows,
+            create_rows,
+            columns,
+            create_columns,
+            block,
+            repeat: self.state.fill_with_same_on_paste,
+        });
     }
 
-    fn handle_selection_moves(
-        &mut self,
-        row_count: usize,
-        data: &mut impl TableBackend,
-        ui: &mut Ui,
-    ) {
-        let (left, right, up, down, enter, shift) = ui.input(|i| {
+    fn handle_selection_moves(&mut self, caps: Capabilities, ui: &mut Ui) {
+        let (left, right, up, down, edit, shift) = ui.input(|i| {
             (
                 i.key_pressed(Key::ArrowLeft),
                 i.key_pressed(Key::ArrowRight),
@@ -320,11 +298,9 @@ impl TableView {
                 i.modifiers.shift,
             )
         });
+        let row_count = self.state.rows.len();
         if left || right || up || down {
             if let Some(already_selected) = &mut self.state.selected_range {
-                if let Some(coord) = already_selected.editing() {
-                    data.commit_cell_edit(coord);
-                }
                 if left {
                     already_selected.move_left(shift);
                 }
@@ -339,54 +315,12 @@ impl TableView {
                     already_selected.move_down(shift, row_count);
                     self.state.rows.reveal(already_selected.row_end());
                 }
-            } else {
-                if data.row_count() > 0 && data.used_columns().next().is_some() {
-                    self.state.selected_range = Some(SelectedRange::single_cell(0, 0));
-                }
+            } else if row_count > 0 && !self.state.columns_ordered.is_empty() {
+                self.state.selected_range = Some(SelectedRange::single_cell(0, 0));
             }
         }
-        let enter = enter && !data.persistent_flags().is_read_only;
-        if enter {
-            if let Some(selected) = &mut self.state.selected_range {
-                if selected.is_single_cell() {
-                    let row_uid = data.row_uid(VisualRowIdx(selected.row_start()));
-                    let col_uid = data.col_uid(VisualColIdx(selected.col_start()));
-                    if let (Some(row_uid), Some(col_uid)) = (row_uid, col_uid) {
-                        selected.set_editing(Some((row_uid, col_uid).into()));
-                    }
-                }
-            }
+        if edit && caps.edit_cells {
+            self.edit_selected_cell();
         }
     }
-
-    // pub(crate) fn handle_clear_request(&mut self, data: &mut impl TableBackend, modal: &mut Modal) {
-    //     if !self.state.clear_requested {
-    //         return;
-    //     }
-    //     modal.show(|ui| {
-    //         modal.title(ui, "Clear all data");
-    //         ui.horizontal(|ui| {
-    //             modal.icon(ui, egui_modal::Icon::Warning);
-    //             ui.label("About to clear all table's data, are you sure?");
-    //         });
-    //         // modal.frame(ui, |ui| {
-    //         //     modal.icon(ui, egui_modal::Icon::Warning);
-    //         //     modal.body(ui, "About to clear all table's data, are you sure?");
-    //         // });
-    //         modal.buttons(ui, |ui| {
-    //             if modal.caution_button(ui, "Clear").clicked() {
-    //                 self.state.clear_requested = false;
-    //                 data.clear();
-    //             }
-    //             if modal.suggested_button(ui, "Cancel").clicked() {
-    //                 self.state.clear_requested = false;
-    //                 modal.close();
-    //             }
-    //             if ui.input(|i| i.key_pressed(Key::Escape)) {
-    //                 self.state.clear_requested = false;
-    //                 modal.close();
-    //             }
-    //         });
-    //     });
-    // }
 }

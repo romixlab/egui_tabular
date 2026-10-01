@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub mod backend;
+pub mod model;
+
+pub use model::*;
 
 pub use rvariant::{Variant, VariantTy};
 
@@ -8,7 +10,7 @@ pub use rvariant::{Variant, VariantTy};
 pub struct ColumnUid(pub u32);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub struct RowUid(pub u32);
+pub struct RowUid(pub u64);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CellCoord {

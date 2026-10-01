@@ -1,8 +1,8 @@
 use super::csv::CsvImporter;
-use crate::backends::variant::VariantBackend;
-use crate::table_view::TableViewConfig;
-use crate::{RequiredColumns, TableView};
-use egui::{Button, Id, RichText, Slider, Ui};
+use crate::backends::variant::VariantTable;
+use crate::table_view::{TableViewConfig, TableViewOutput};
+use crate::{RequiredColumns, TableView, TableViewOptions, VariantCellUi};
+use egui::{Button, RichText, Slider, Ui};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
@@ -12,7 +12,7 @@ use tabular_core::{CsvImporterConfig, Separator};
 
 pub struct TabularImporter {
     csv: CsvImporter,
-    pub backend: VariantBackend,
+    pub table: VariantTable,
     pub table_view: TableView,
     open_error: Option<String>,
     load_rows_limit: Option<usize>,
@@ -38,34 +38,22 @@ impl Default for TabularImporterConfig {
 
 impl TabularImporter {
     pub fn new(required_columns: RequiredColumns) -> Self {
-        let mut backend = VariantBackend::new::<&str>([]);
+        let mut table = VariantTable::new([]);
         for (uid, r) in required_columns.required_columns.iter() {
-            backend.insert_column(
-                Some(*uid),
-                r.name.clone(),
-                r.synonyms.clone(),
-                r.ty.clone(),
-                r.default.clone(),
-                true,
-                true,
-            );
+            table.insert_column(Some(*uid), r.column_def());
         }
         TabularImporter {
             csv: CsvImporter::new(required_columns),
-            backend,
-            table_view: TableView::new(),
+            table,
+            table_view: TableView::new(TableViewOptions::default()),
             open_error: None,
             load_rows_limit: None,
         }
     }
 
-    pub fn show(
-        &mut self,
-        config: &mut TabularImporterConfig,
-        max_height: Option<f32>,
-        ui: &mut Ui,
-        id: Id,
-    ) {
+    /// File and CSV options above the table. View options (id, height) are in
+    /// `table_view.options_mut()`.
+    pub fn show(&mut self, config: &mut TabularImporterConfig, ui: &mut Ui) -> TableViewOutput {
         ui.horizontal(|ui| {
             let label = if let Some(limit) = self.load_rows_limit {
                 RichText::new(format!("Preview file ({limit} rows):"))
@@ -149,12 +137,11 @@ impl TabularImporter {
         }
         ui.separator();
         self.table_view.show(
-            &mut self.backend,
-            &mut config.view_config,
-            max_height,
             ui,
-            id,
-        );
+            &mut self.table,
+            &mut VariantCellUi,
+            &mut config.view_config,
+        )
     }
 
     pub fn load(&mut self, path: PathBuf, config: &mut TabularImporterConfig) {
@@ -181,7 +168,7 @@ impl TabularImporter {
         self.csv.load(
             &mut config.importer_config,
             &mut rdr,
-            &mut self.backend,
+            &mut self.table,
             self.load_rows_limit,
         );
     }
@@ -190,12 +177,12 @@ impl TabularImporter {
         self.open_error.is_some()
     }
 
-    pub fn backend(&self) -> &VariantBackend {
-        &self.backend
+    pub fn table(&self) -> &VariantTable {
+        &self.table
     }
 
-    pub fn backend_mut(&mut self) -> &mut VariantBackend {
-        &mut self.backend
+    pub fn table_mut(&mut self) -> &mut VariantTable {
+        &mut self.table
     }
 
     pub fn set_max_lines(&mut self, max_lines: usize) {

@@ -1,4 +1,4 @@
-//! Test fixture: a `TableView` + `VariantBackend` driven headlessly by egui_kittest.
+//! Test fixture: a `TableView` + `VariantTable` driven headlessly by egui_kittest.
 //!
 //! Tests should go through these helpers instead of reaching into the view, so that the
 //! DESIGN-8 rework only has to port this file. See AGENTS.md ("UI tests") for conventions.
@@ -6,25 +6,29 @@
 use egui::{Event, Key, Modifiers, OutputCommand, Pos2, Vec2, accesskit::Role};
 use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, HarnessBuilder, Node};
-use egui_tabular::backends::variant::VariantBackend;
 use egui_tabular::rvariant::{Variant, VariantTy};
-use egui_tabular::table_view::TableViewConfig;
-use egui_tabular::{CellCoord, ColumnUid, RowUid, TableView};
-use tabular_core::backend::TableBackend;
+use egui_tabular::{
+    CellCoord, CellUi, ColumnDef, ColumnUid, RowUid, TableEvent, TableModel, TableView,
+    TableViewConfig, TableViewOptions, VariantCellUi, VariantTable,
+};
 
 /// Horizontal cell padding: half of egui's default `item_spacing.x`.
 const PAD_X: f32 = 4.0;
 
-pub struct App {
-    pub backend: VariantBackend,
+pub struct App<M = VariantTable, C = VariantCellUi> {
+    pub table: M,
+    pub cell_ui: C,
     pub view: TableView,
     pub config: TableViewConfig,
     /// Text the table put on the clipboard during the last frame that copied anything.
     pub copied: Option<String>,
+    /// Every event the view reported, oldest first.
+    pub events: Vec<TableEvent>,
 }
 
-pub struct Table {
-    pub h: Harness<'static, App>,
+/// A table over a model `M` shown with `C`. Defaults to [`Table::grid`]'s `VariantTable`.
+pub struct Table<M: 'static = VariantTable, C: 'static = VariantCellUi> {
+    pub h: Harness<'static, App<M, C>>,
     pub rows: Vec<RowUid>,
     pub cols: Vec<ColumnUid>,
 }
@@ -59,39 +63,44 @@ impl Table {
 
     /// [`Table::grid`] with a customized harness, e.g. `.with_os(..)` or `.with_size(..)`.
     pub fn grid_with(builder: HarnessBuilder<App>, cols: usize, rows: usize) -> Self {
-        let mut backend =
-            VariantBackend::new((0..cols).map(|c| (col_name(c), VariantTy::Str, None)));
-        let cols: Vec<_> = (0..cols as u32).map(ColumnUid).collect();
-        let rows = (0..rows)
-            .map(|r| {
-                backend.insert_row(
-                    cols.iter()
-                        .enumerate()
-                        .map(|(c, uid)| (*uid, Variant::Str(cell_text(c, r)))),
-                )
-            })
-            .collect();
-        Self::build(builder, backend, rows, cols)
+        let mut table =
+            VariantTable::new((0..cols).map(|c| ColumnDef::new(col_name(c), VariantTy::Str)));
+        for r in 0..rows {
+            table.insert_row(
+                (0..cols).map(|c| (ColumnUid(c as u32), Variant::Str(cell_text(c, r)))),
+            );
+        }
+        Self::build(builder, table, VariantCellUi)
+    }
+}
+
+impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
+    /// Any model, shown with `cell_ui` in a 600×400 harness.
+    pub fn custom(table: M, cell_ui: C) -> Self {
+        Self::build(
+            Harness::builder().with_size(Vec2::new(600.0, 400.0)),
+            table,
+            cell_ui,
+        )
     }
 
-    /// A table over any `VariantBackend`. The backend must be fresh: a view only picks up the
-    /// columns and rows from the backend's one-shot flags, which the first view consumes (FLAGS-1).
-    pub fn build(
-        builder: HarnessBuilder<App>,
-        backend: VariantBackend,
-        rows: Vec<RowUid>,
-        cols: Vec<ColumnUid>,
-    ) -> Self {
+    pub fn build(builder: HarnessBuilder<App<M, C>>, table: M, cell_ui: C) -> Self {
+        let rows = table.rows().collect();
+        let cols = table.columns().collect();
         let app = App {
-            backend,
-            view: TableView::new(),
+            table,
+            cell_ui,
+            view: TableView::new(TableViewOptions::default()),
             config: TableViewConfig::default(),
             copied: None,
+            events: vec![],
         };
         let h = builder.build_ui_state(
-            |ui, app: &mut App| {
-                app.view
-                    .show(&mut app.backend, &mut app.config, None, ui, ui.id());
+            |ui, app: &mut App<M, C>| {
+                let output = app
+                    .view
+                    .show(ui, &mut app.table, &mut app.cell_ui, &mut app.config);
+                app.events.extend(output.events);
                 let copied = ui.ctx().output(|o| {
                     o.commands.iter().rev().find_map(|c| match c {
                         OutputCommand::CopyText(text) => Some(text.clone()),
@@ -137,13 +146,13 @@ impl Table {
             .unwrap_or_default()
     }
 
-    /// Backend value of a cell as a string.
+    /// Model value of a cell as a string.
     pub fn value(&self, row: usize, col: usize) -> Option<String> {
         let coord = CellCoord {
             row_uid: self.rows[row],
             col_uid: self.cols[col],
         };
-        self.h.state().backend.get_as_string(coord)
+        self.h.state().table.get(coord).map(|v| v.to_string())
     }
 
     /// Data column names in visual order, read from header label positions.
