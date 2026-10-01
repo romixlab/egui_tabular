@@ -36,14 +36,18 @@ egui_extras was dropped in [DESIGN-9](#design-9-anchor-based-layout-without-egui
 
 ## Status legend
 
-| Status    | Meaning                                                                    |
-|-----------|----------------------------------------------------------------------------|
-| `done`    | Implemented and believed correct.                                          |
-| `buggy`   | Implemented, but with known bugs (linked by ID).                           |
-| `partial` | Some of it works; the gaps are described.                                  |
-| `stub`    | UI or API exists but does nothing.                                         |
-| `planned` | Not implemented; intended.                                                 |
-| `idea`    | Not implemented; worth considering, not committed to.                      |
+| Status | Meaning |
+|--------|---------|
+| ✅ done | Implemented and believed correct. |
+| 🚧 partial | In progress or partially done; the note says what is missing. |
+| 🐛 buggy | Implemented, but with known bugs (linked by ID). |
+| ⬜ stub | UI or API exists but does nothing. |
+| 📋 planned | Not implemented; intended. |
+| 💡 idea | Not implemented; worth considering, not committed to. |
+| ⛔ blocked | Can't proceed; the note says on what. |
+| 🔍 verify | Probably done or obsolete; needs a check before closing. |
+
+The same icons mark roadmap steps.
 
 Severity for bugs: **crash** (panic), **data-loss** (user edits or data silently lost/corrupted),
 **major** (feature visibly broken), **minor** (cosmetic or edge case).
@@ -83,100 +87,100 @@ display order with the scroll anchor and row heights, selection, and paste state
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generic `TableBackend` trait (rows/cols by uid, visual index → uid mapping) | `done` | See [DESIGN-3](#design-3-tablebackendcol_uid-conflicts-with-view-owned-column-order) for `col_uid`. |
-| `get` / `set` cells as `Variant` | `done` | Optional; copy and CSV export depend on `get`. |
-| Create row / create column | `done` | `VariantBackend` names new columns `A`, `B`, ... via `base_26`. |
-| Row / column skipping (strike-through, excluded from export) | `buggy` | Skipped columns are still exported ([EXPORT-3](#export-3)). |
-| Cell metadata: background color, corner triangle, multiple tooltips, wrap mode | `done` | `set_metadata(coord, meta, merge)`. |
-| Change/flag notification (`PersistentFlags`, `OneShotFlags`) | `buggy` | Error-prone; see [DESIGN-1](#design-1-flags-system), [FLAGS-*](#flags-and-change-notification). |
-| Read-only tables | `buggy` | `VariantBackend::set_read_only` has no effect ([BACKEND-1](#backend-1)); several buttons ignore read-only ([VIEW-4](#view-4)). |
-| Remote/lazy backends | `idea` | The never-called `reload`, `poll`, `commit_all`, `commit_immediately` stubs were removed in step 0. Server-side sorting has a planned hook ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"). |
-| Column "used" vs "available" | `partial` | `used_columns()` exists, but `VariantBackend` doesn't override it. `use_column` (a no-op) was removed in step 0. DESIGN-8 folds this into `ColumnInfo::is_used`. |
-| Undo / redo | `planned` | |
-| Sorting | `stub` | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
-| Filtering | `planned` | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
+| Generic `TableBackend` trait (rows/cols by uid, visual index → uid mapping) | ✅ done | See [DESIGN-3](#design-3-tablebackendcol_uid-conflicts-with-view-owned-column-order) for `col_uid`. |
+| `get` / `set` cells as `Variant` | ✅ done | Optional; copy and CSV export depend on `get`. |
+| Create row / create column | ✅ done | `VariantBackend` names new columns `A`, `B`, ... via `base_26`. |
+| Row / column skipping (strike-through, excluded from export) | 🐛 buggy | Skipped columns are still exported ([EXPORT-3](#export-3)). |
+| Cell metadata: background color, corner triangle, multiple tooltips, wrap mode | ✅ done | `set_metadata(coord, meta, merge)`. |
+| Change/flag notification (`PersistentFlags`, `OneShotFlags`) | 🐛 buggy | Error-prone; see [DESIGN-1](#design-1-flags-system), [FLAGS-*](#flags-and-change-notification). |
+| Read-only tables | 🐛 buggy | `VariantBackend::set_read_only` has no effect ([BACKEND-1](#backend-1)); several buttons ignore read-only ([VIEW-4](#view-4)). |
+| Remote/lazy backends | 💡 idea | The never-called `reload`, `poll`, `commit_all`, `commit_immediately` stubs were removed in step 0. Server-side sorting has a planned hook ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"). |
+| Column "used" vs "available" | 🚧 partial | `used_columns()` exists, but `VariantBackend` doesn't override it. `use_column` (a no-op) was removed in step 0. DESIGN-8 folds this into `ColumnInfo::is_used`. |
+| Undo / redo | 📋 planned | |
+| Sorting | ⬜ stub | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
+| Filtering | 📋 planned | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
 
 ### `VariantBackend`
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| In-memory storage, column defaults applied on row insert | `done` | |
-| `turn_column_into(ty)` with conversion errors shown as orange cells + tooltip | `done` | Code-only API, no UI. |
-| Viewers: Str, StrList, Bool, Enum, numbers, others via `Display` | `buggy` | Bool viewer is a live checkbox ([EDIT-7](#edit-7)). |
-| Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | `partial` | No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). Enum doesn't commit on selection ([EDIT-6](#edit-6)). |
-| Column mapping choices (combo box above columns) | `done` | Stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`. |
-| Date, SI values, currency viewers/editors | `planned` | |
+| In-memory storage, column defaults applied on row insert | ✅ done | |
+| `turn_column_into(ty)` with conversion errors shown as orange cells + tooltip | ✅ done | Code-only API, no UI. |
+| Viewers: Str, StrList, Bool, Enum, numbers, others via `Display` | 🐛 buggy | Bool viewer is a live checkbox ([EDIT-7](#edit-7)). |
+| Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | 🚧 partial | No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). Enum doesn't commit on selection ([EDIT-6](#edit-6)). |
+| Column mapping choices (combo box above columns) | ✅ done | Stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`. |
+| Date, SI values, currency viewers/editors | 📋 planned | |
 
 ### Table view
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Virtualized rendering (only visible rows) | `done` | Rows are laid out outwards from a scroll anchor; cost is O(visible rows) ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)). |
-| Scroll position anchored to a row | `done` | Inserting/removing rows above keeps the view on the same row. |
-| Mouse wheel and vertical scroll bar | `done` | Bar sits right after the last column (or at the right edge if columns are wider). Proportional to rows, not pixels. Wheel delta passes to a parent scroll area at the ends. No touch drag-to-scroll ([VIEW-8](#view-8)). |
-| Horizontal scrolling | `done` | egui `ScrollArea::horizontal`. |
-| Heterogeneous row heights | `buggy` | `TableViewConfig::use_heterogeneous_row_heights` (checkbox in the `simple` demo). Measured every frame and cached by `RowUid`; editing makes rows jump ([EDIT-5](#edit-5)). |
-| Resizable columns | `done` | Drag the right edge of a column; double-click it to return to auto width. Widths are keyed by `ColumnUid` but not persisted ([DND-5](#dnd-5)). |
-| Auto-sized columns | `done` | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
-| Column header: name, type, hover info (required/synonyms/used) | `done` | |
-| Column header context menu | `partial` | Only "Skip" works. "Sort", "Hide" are stubs; "Add column" is only shown for sortable columns ([VIEW-5](#view-5)). |
-| Column drag & drop reorder | `buggy` | Swaps instead of moves; widths, selection and order persistence broken ([DND-*](#column-drag--drop)). |
-| Tool column (row numbers, row context menu: append, skip) | `done` | |
-| Tool column header menu: Export CSV, Append row, Clear | `buggy` | "Clear" has no confirmation ([VIEW-6](#view-6)). |
-| "No columns" state with "Create column" button | `buggy` | Ignores read-only / creation support ([VIEW-4](#view-4)). |
-| Multiple tables in one parent `Ui` | `done` | All view ids derive from the `id` passed to `show`. |
-| Cell background colors / corner triangles / tooltips | `done` | |
-| Selection: single cell, rectangle, whole row, select all | `buggy` | See [SEL-*](#selection-and-keyboard). |
-| Scroll selection into view on keyboard navigation | `partial` | Vertical only (arrow keys). No horizontal reveal yet. |
-| Page Up / Page Down / Home / End | `planned` | Trivial with the anchor: move it by what fit on screen. |
-| Stick-to-bottom for live data | `partial` | Always on: if the end of the table is in view, appended rows keep it there. Not configurable. |
-| Scroll to a newly appended row | `done` | `N`, "Append row" in the tool column menus and the "Add row" button. |
-| Visual state persistence (`TableViewConfig` is serde) | `partial` | Column order and widths are not persisted ([DND-5](#dnd-5)). |
-| Custom column header UI (`TableFrontend::custom_column_ui`) | `done` | |
-| Per-column render config | `planned` | The never-called `TableFrontend::column_render_config` was removed in step 0. Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
+| Virtualized rendering (only visible rows) | ✅ done | Rows are laid out outwards from a scroll anchor; cost is O(visible rows) ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)). |
+| Scroll position anchored to a row | ✅ done | Inserting/removing rows above keeps the view on the same row. |
+| Mouse wheel and vertical scroll bar | ✅ done | Bar sits right after the last column (or at the right edge if columns are wider). Proportional to rows, not pixels. Wheel delta passes to a parent scroll area at the ends. No touch drag-to-scroll ([VIEW-8](#view-8)). |
+| Horizontal scrolling | ✅ done | egui `ScrollArea::horizontal`. |
+| Heterogeneous row heights | 🐛 buggy | `TableViewConfig::use_heterogeneous_row_heights` (checkbox in the `simple` demo). Measured every frame and cached by `RowUid`; editing makes rows jump ([EDIT-5](#edit-5)). |
+| Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Widths are keyed by `ColumnUid` but not persisted ([DND-5](#dnd-5)). |
+| Auto-sized columns | ✅ done | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
+| Column header: name, type, hover info (required/synonyms/used) | ✅ done | |
+| Column header context menu | 🚧 partial | Only "Skip" works. "Sort", "Hide" are stubs; "Add column" is only shown for sortable columns ([VIEW-5](#view-5)). |
+| Column drag & drop reorder | 🐛 buggy | Swaps instead of moves; widths, selection and order persistence broken ([DND-*](#column-drag--drop)). |
+| Tool column (row numbers, row context menu: append, skip) | ✅ done | |
+| Tool column header menu: Export CSV, Append row, Clear | 🐛 buggy | "Clear" has no confirmation ([VIEW-6](#view-6)). |
+| "No columns" state with "Create column" button | 🐛 buggy | Ignores read-only / creation support ([VIEW-4](#view-4)). |
+| Multiple tables in one parent `Ui` | ✅ done | All view ids derive from the `id` passed to `show`. |
+| Cell background colors / corner triangles / tooltips | ✅ done | |
+| Selection: single cell, rectangle, whole row, select all | 🐛 buggy | See [SEL-*](#selection-and-keyboard). |
+| Scroll selection into view on keyboard navigation | 🚧 partial | Vertical only (arrow keys). No horizontal reveal yet. |
+| Page Up / Page Down / Home / End | 📋 planned | Trivial with the anchor: move it by what fit on screen. |
+| Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable. |
+| Scroll to a newly appended row | ✅ done | `N`, "Append row" in the tool column menus and the "Add row" button. |
+| Visual state persistence (`TableViewConfig` is serde) | 🚧 partial | Column order and widths are not persisted ([DND-5](#dnd-5)). |
+| Custom column header UI (`TableFrontend::custom_column_ui`) | ✅ done | |
+| Per-column render config | 📋 planned | The never-called `TableFrontend::column_render_config` was removed in step 0. Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
 
 ### Editing
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Click selected cell to edit; `E` to edit | `buggy` | See [EDIT-*](#cell-editing). |
-| Enter commits, Escape cancels, Tab commits and edits next cell | `buggy` | [EDIT-1](#edit-1) – [EDIT-4](#edit-4), [EDIT-6](#edit-6). |
-| Commit on focus loss / click outside | `planned` | [EDIT-3](#edit-3). |
-| Start editing by typing / Enter / F2 / double-click | `planned` | [EDIT-9](#edit-9). |
+| Click selected cell to edit; `E` to edit | 🐛 buggy | See [EDIT-*](#cell-editing). |
+| Enter commits, Escape cancels, Tab commits and edits next cell | 🐛 buggy | [EDIT-1](#edit-1) – [EDIT-4](#edit-4), [EDIT-6](#edit-6). |
+| Commit on focus loss / click outside | 📋 planned | [EDIT-3](#edit-3). |
+| Start editing by typing / Enter / F2 / double-click | 📋 planned | [EDIT-9](#edit-9). |
 
 ### Clipboard
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Copy selection as TSV (Ctrl+C) | `buggy` | Row selections add trailing tabs ([SEL-1](#sel-1)); uses `ctrl` not `command` ([SEL-5](#sel-5)). |
-| Paste TSV block into selection | `buggy` | See [PASTE-*](#paste). |
-| Paste into empty table creates columns and rows | `done` | |
-| Paste dialog for size mismatch (create rows, repeat fill, create columns) | `buggy` | [PASTE-1](#paste-1) – [PASTE-4](#paste-4). |
-| Paste "overflow" mode | `planned` | Commented-out button in `handle_paste_continue`. |
+| Copy selection as TSV (Ctrl+C) | 🐛 buggy | Row selections add trailing tabs ([SEL-1](#sel-1)); uses `ctrl` not `command` ([SEL-5](#sel-5)). |
+| Paste TSV block into selection | 🐛 buggy | See [PASTE-*](#paste). |
+| Paste into empty table creates columns and rows | ✅ done | |
+| Paste dialog for size mismatch (create rows, repeat fill, create columns) | 🐛 buggy | [PASTE-1](#paste-1) – [PASTE-4](#paste-4). |
+| Paste "overflow" mode | 📋 planned | Commented-out button in `handle_paste_continue`. |
 
 ### Import / export
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `TabularImporter` UI: file picker, reload, separator, header row, skip N rows | `done` | |
-| CSV import with auto separator detection | `done` | Counts `,` `\t` `;` in the first MiB. |
-| Encoding detection (chardetng) | `buggy` | Never reads any bytes ([IMPORT-1](#import-1)). |
-| Required columns mapped by name/synonym (case-insensitive) | `done` | Header names are not trimmed ([IMPORT-4](#import-4)). |
-| CSV without header row | `buggy` | Last column dropped ([IMPORT-2](#import-2)). |
-| Ragged CSV (rows wider than header) | `buggy` | Extra cells land in wrong columns ([IMPORT-3](#import-3)). |
-| Preview mode (`set_max_lines`) | `done` | |
-| XLS/XLSX import | `planned` | Demo is named `csv_xls_import` but only CSV exists. |
-| Export CSV | `buggy` | See [EXPORT-*](#export). |
-| Export XLS/XLSX | `idea` | |
+| `TabularImporter` UI: file picker, reload, separator, header row, skip N rows | ✅ done | |
+| CSV import with auto separator detection | ✅ done | Counts `,` `\t` `;` in the first MiB. |
+| Encoding detection (chardetng) | 🐛 buggy | Never reads any bytes ([IMPORT-1](#import-1)). |
+| Required columns mapped by name/synonym (case-insensitive) | ✅ done | Header names are not trimmed ([IMPORT-4](#import-4)). |
+| CSV without header row | 🐛 buggy | Last column dropped ([IMPORT-2](#import-2)). |
+| Ragged CSV (rows wider than header) | 🐛 buggy | Extra cells land in wrong columns ([IMPORT-3](#import-3)). |
+| Preview mode (`set_max_lines`) | ✅ done | |
+| XLS/XLSX import | 📋 planned | Demo is named `csv_xls_import` but only CSV exists. |
+| Export CSV | 🐛 buggy | See [EXPORT-*](#export). |
+| Export XLS/XLSX | 💡 idea | |
 
 ### Derive macro (`#[derive(TabularRow)]`)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Generates `<Row>TabularBackend` with `new(Vec<Row>)`, read-only | `buggy` | Struct is private ([DERIVE-2](#derive-2)). |
-| Column names from field names (Sentence case), type shown in header | `done` | |
-| `#[format = "..."]` per field | `buggy` | Output wrapped in literal quotes ([DERIVE-1](#derive-1)). |
-| Copy / CSV export from derived tables | `planned` | `get()` not generated ([DERIVE-4](#derive-4)). |
+| Generates `<Row>TabularBackend` with `new(Vec<Row>)`, read-only | 🐛 buggy | Struct is private ([DERIVE-2](#derive-2)). |
+| Column names from field names (Sentence case), type shown in header | ✅ done | |
+| `#[format = "..."]` per field | 🐛 buggy | Output wrapped in literal quotes ([DERIVE-1](#derive-1)). |
+| Copy / CSV export from derived tables | 📋 planned | `get()` not generated ([DERIVE-4](#derive-4)). |
 
 ---
 
@@ -928,20 +932,20 @@ Suggested order; update as items land. Breaking changes are preferred whenever t
 design (all users will be ported), so the API redesign comes **first**: most crash and data-loss bugs are fixed by it
 structurally, so patching them in the old code first would be wasted work.
 
-0. **Housekeeping** — `done`: dead modules deleted, never-called trait stubs removed, missing
+0. ✅ **Housekeeping** — done: dead modules deleted, never-called trait stubs removed, missing
    derives, `Cargo.toml` versions, `.idea/` untracked.
-1. **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)): `Revision`, `Capabilities`, `TableModel`, `CellUi` + `VariantCellUi`,
+1. 📋 **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)): `Revision`, `Capabilities`, `TableModel`, `CellUi` + `VariantCellUi`,
    command queue. Port `VariantBackend` → `VariantTable`, the derive macro, the importer and the
    three demos. Fixes FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4, PASTE-5.
-2. **View state rewrite:** uid selection with anchor/cursor, view-owned edit buffer, focus-based
+2. 🚧 **View state rewrite:** uid selection with anchor/cursor, view-owned edit buffer, focus-based
    input, `TableViewOptions`, view-owned row order (sorting) built into `RowLayout`. Fixes
    EDIT-1..3, EDIT-5..7, EDIT-9, SEL-1..5, VIEW-4, VIEW-5, DND-3. The anchor-based layout
    ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)) landed ahead of this step.
-3. **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`.
-4. **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), `write_csv(model, order, impl
+3. 📋 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`.
+4. 📋 **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), `write_csv(model, order, impl
    Write) -> Result` (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of
    steps 1–3; can land any time.
-5. **Features:** filtering, undo/redo (inverse commands), horizontal scroll-into-view, Page Up/Down,
+5. 📋 **Features:** filtering, undo/redo (inverse commands), horizontal scroll-into-view, Page Up/Down,
    touch drag-to-scroll (VIEW-8), XLSX import, more
    editors (EDIT-8), confirmation for Clear (VIEW-6), selection colors (VIEW-7).
 
