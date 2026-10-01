@@ -29,14 +29,16 @@ TODO: Add web demo.
 * [x] Ability to add lints to cells and change their background color.
     * [ ] Add icons
 * [x] Support for cells with varying heights.
+* [x] Resizable, auto-sized columns.
+* [x] Scroll position anchored to a row: stays put when rows are inserted above.
 * [x] Drag&drop column reordering.
 * [x] Export to CSV.
-* [ ] Stick to bottom mode for viewing real time data.
+* [x] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
 * [x] Disable/enable rows and columns (show a hatch pattern when disabled).
 * [x] Change a column type and try to turn data into requested type (VariantBackend, only from code now).
 * [x] Derive macro to show Vec<UserRowStruct> as table.
-* [ ] Improve drag&drop, like on DK + preserve widths
+* [ ] Improve drag&drop, like on DK
 
 ## Non-goals
 
@@ -54,10 +56,11 @@ TODO: Add web demo.
 * Tab - commit edit and edit cell to the right
 * E - edit cell
 * Esc - cancel edit or unselect
-* Left, Right, Up, Down - move selection
+* Left, Right, Up, Down - move selection (scrolls it into view)
     * +Shift - expand selection
-* N - append new row
+* N - append new row and scroll to it
 * Shift + click - expand selection
+* Drag column edge - resize, double-click it - back to auto width
 
 ## Project status
 

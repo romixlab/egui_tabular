@@ -11,6 +11,11 @@ broken and what is planned. README.md is the public pitch; this file is the engi
 
 Last full review: 2026-10-01 (baseline `29fddab`, egui 0.36, egui_extras 0.36.1). The breaking
 redesign in [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) is in progress.
+egui_extras was dropped in [DESIGN-9](#design-9-anchor-based-layout-without-egui_extras).
+
+> **Branch `v0.3.0` is under heavy development.** Breaking changes are not only accepted but
+> preferred whenever they lead to a better design: no compatibility shims, deprecation paths or
+> adapters for the old API. Every known downstream user will be ported.
 
 ---
 
@@ -51,7 +56,9 @@ Severity for bugs: **crash** (panic), **data-loss** (user edits or data silently
 |------|---------|
 | `tabular_core/` | egui-independent core types: `TableBackend` trait, `ColumnUid`, `RowUid`, `CellCoord`, `BackendColumn`, `PersistentFlags`, `OneShotFlags`, `CellMetadata`, `Rgb`, `WrapMode`, `CsvImporterConfig`. Re-exports `rvariant::{Variant, VariantTy}`. |
 | `tabular_derive/` | `#[derive(TabularRow)]` proc macro: turns `Vec<Row>` into a read-only backend + frontend. |
-| `src/table_view.rs` | `TableView::show()`: header, body rendering, column DnD, row heights. |
+| `src/table_view.rs` | `TableView::show()`: header and body layout (own cell layout, no egui_extras), column DnD and resize handles. |
+| `src/table_view/layout.rs` | `RowLayout` (anchor-based vertical scrolling, row order, row heights by `RowUid`) and `ColumnWidths` (by column). Unit-tested. |
+| `src/table_view/scroll_bar.rs` | Row-proportional vertical scroll bar. |
 | `src/table_view/interaction.rs` | Keyboard handling, copy, paste (+ paste modal), selection moves. |
 | `src/table_view/state.rs` | `State` and `SelectedRange` (selection + editing coord). |
 | `src/table_view/tool_column.rs` | Left "tool" column: row numbers and context menus. |
@@ -64,8 +71,8 @@ Severity for bugs: **crash** (panic), **data-loss** (user edits or data silently
 | `tests/` | Compile test for the derive macro. |
 
 The view is generic over `T: TableBackend + TableFrontend`. The backend owns data, column info and
-(today) the in-progress edit buffer. The view owns visual column order, selection, row heights and
-paste state.
+(today) the in-progress edit buffer. The view owns visual column order, column widths, the row
+display order with the scroll anchor and row heights, selection, and paste state.
 
 ---
 
@@ -103,20 +110,26 @@ paste state.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Virtualized rendering (only visible rows) | `done` | Via `egui_extras::TableBuilder`. |
-| Heterogeneous row heights | `buggy` | Heights only resync on `row_set_updated` flag ([VIEW-1](#view-1)); editing causes jumps ([EDIT-5](#edit-5)). |
-| Resizable columns | `buggy` | Widths are positional and don't follow reordered columns ([DND-2](#dnd-2)). |
+| Virtualized rendering (only visible rows) | `done` | Rows are laid out outwards from a scroll anchor; cost is O(visible rows) ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)). |
+| Scroll position anchored to a row | `done` | Inserting/removing rows above keeps the view on the same row. |
+| Mouse wheel and vertical scroll bar | `done` | Bar sits right after the last column (or at the right edge if columns are wider). Proportional to rows, not pixels. Wheel delta passes to a parent scroll area at the ends. No touch drag-to-scroll ([VIEW-8](#view-8)). |
+| Horizontal scrolling | `done` | egui `ScrollArea::horizontal`. |
+| Heterogeneous row heights | `buggy` | `TableViewConfig::use_heterogeneous_row_heights` (checkbox in the `simple` demo). Measured every frame and cached by `RowUid`; editing makes rows jump ([EDIT-5](#edit-5)). |
+| Resizable columns | `done` | Drag the right edge of a column; double-click it to return to auto width. Widths are keyed by `ColumnUid` but not persisted ([DND-5](#dnd-5)). |
+| Auto-sized columns | `done` | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
 | Column header: name, type, hover info (required/synonyms/used) | `done` | |
 | Column header context menu | `partial` | Only "Skip" works. "Sort", "Hide" are stubs; "Add column" is only shown for sortable columns ([VIEW-5](#view-5)). |
 | Column drag & drop reorder | `buggy` | Swaps instead of moves; widths, selection and order persistence broken ([DND-*](#column-drag--drop)). |
 | Tool column (row numbers, row context menu: append, skip) | `done` | |
-| Tool column header menu: Export CSV, Append row, Clear | `buggy` | "Clear" panics ([VIEW-1](#view-1)), no confirmation ([VIEW-6](#view-6)). |
+| Tool column header menu: Export CSV, Append row, Clear | `buggy` | "Clear" has no confirmation ([VIEW-6](#view-6)). |
 | "No columns" state with "Create column" button | `buggy` | Ignores read-only / creation support ([VIEW-4](#view-4)). |
-| Multiple tables in one parent `Ui` | `buggy` | egui_extras state collides ([VIEW-3](#view-3)). |
+| Multiple tables in one parent `Ui` | `done` | All view ids derive from the `id` passed to `show`. |
 | Cell background colors / corner triangles / tooltips | `done` | |
 | Selection: single cell, rectangle, whole row, select all | `buggy` | See [SEL-*](#selection-and-keyboard). |
-| Scroll selection into view on keyboard navigation | `planned` | |
-| Stick-to-bottom for live data | `partial` | `stick_to_bottom(true)` is hard-coded, not configurable. |
+| Scroll selection into view on keyboard navigation | `partial` | Vertical only (arrow keys). No horizontal reveal yet. |
+| Page Up / Page Down / Home / End | `planned` | Trivial with the anchor: move it by what fit on screen. |
+| Stick-to-bottom for live data | `partial` | Always on: if the end of the table is in view, appended rows keep it there. Not configurable. |
+| Scroll to a newly appended row | `done` | `N`, "Append row" in the tool column menus and the "Add row" button. |
 | Visual state persistence (`TableViewConfig` is serde) | `partial` | Column order and widths are not persisted ([DND-5](#dnd-5)). |
 | Custom column header UI (`TableFrontend::custom_column_ui`) | `done` | |
 | Per-column render config | `planned` | The never-called `TableFrontend::column_render_config` was removed in step 0. Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
@@ -179,9 +192,13 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Click / Shift+click tool column | — | Select row / extend row selection. Drops an in-progress edit ([EDIT-1](#edit-1)). |
 | Right-click tool column / header | — | Context menus (see feature inventory). |
 | Drag column header | — | Swap with drop target ([DND-1](#dnd-1)). |
-| Arrows (+Shift) | Not editing | Move (grow) selection. Panics with 0 rows ([SEL-2](#sel-2)). |
+| Drag column right edge | — | Resize the column (full table height is the handle). |
+| Double-click column right edge | — | Return the column to auto width and re-fit it to the header and visible rows, eased (tool column: default width). |
+| Mouse wheel | Pointer over table | Scroll rows; Shift+wheel scrolls horizontally. |
+| Drag / click scroll bar | — | Drag the thumb, or click the track to jump there. |
+| Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. Panics with 0 rows ([SEL-2](#sel-2)). |
 | `E` | Not editing, not read-only, single cell | Start editing. Wrong column after reorder ([EDIT-4](#edit-4)). |
-| `N` | Not editing, not read-only | Append row. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
+| `N` | Not editing, not read-only | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
 | Ctrl+A / Cmd+A | Not editing | Select all. |
 | Ctrl+C | Not editing | Copy TSV. Cmd+C on macOS doesn't work ([SEL-5](#sel-5)). |
 | Ctrl/Cmd+V | Not editing, not read-only | Paste. |
@@ -228,8 +245,8 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 
 #### EDIT-5
 **Editor is taller than the row: rows jump or the editor is clipped.** — *major (visual)*
-- Where: `TableViewConfig::default` (`minimum_row_height = 15.0`), `show_body` row-height feedback.
-- Cause: TextEdit/DragValue are about 20px plus frame. With heterogeneous heights the row grows one frame late (one frame of overflow, then every row below shifts) and shrinks back after commit. With fixed heights the editor is clipped.
+- Where: `TableViewConfig::default` (`minimum_row_height = 15.0`), `show_body` row heights.
+- Cause: TextEdit/DragValue are about 20px plus frame. With heterogeneous heights the row grows when the editor opens (rows below shift) and shrinks back after commit. Since DESIGN-9 there is no frame of overflow any more: rows below are placed after the measured row. With fixed heights the editor is clipped.
 - Fix: default the minimum row height to `ui.spacing().interact_size.y`, and/or use frameless editors sized to the row.
 
 #### EDIT-6
@@ -260,11 +277,6 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **Drop swaps columns instead of moving.** — *major (UX)*
 - Where: `TableView::swap_columns` (`table_view.rs:376`).
 - Dropping A on D in `A B C D` yields `D B C A`. Expected `B C D A` (or insert-before semantics with an insertion marker).
-
-#### DND-2
-**Column widths don't follow reordered columns.** — *major (visual)*
-- Cause: egui_extras stores `TableState::column_widths` by position (`egui_extras-0.36.1/src/table.rs:578`). After a reorder each column inherits its neighbour's width.
-- Fix: keep per-`ColumnUid` widths in view state/config and feed them as `Column::initial`, or reset the egui_extras table state (`Table::reset`) for the affected columns after a move.
 
 #### DND-3
 **`SelectedRange::swap_col` is a no-op.** — *major*
@@ -339,20 +351,6 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 
 ### Table view / layout
 
-#### VIEW-1
-**"Clear" from the tool column menu panics.** — *crash*
-- Where: `show_body` (`table_view.rs:430`, `row_uid(..).unwrap()`).
-- Cause: `clear()` runs inside the header closure. The body then iterates the stale `row_heights` (heterogeneous mode) and `row_uid` returns `None`. More generally `row_heights` only resizes on the `row_set_updated` flag, so any backend that forgets the flag can panic here or hide rows.
-- Fix: resync when `row_heights.len() != row_count()`; never `unwrap` `row_uid`.
-
-#### VIEW-2
-**Row heights are indexed by visual row.** — *minor*
-- Once sorting/filtering exists, heights won't follow rows. Key by `RowUid` or reset on visible-order change.
-
-#### VIEW-3
-**Two `TableView`s in the same parent `Ui` share egui_extras state.** — *major*
-- `TableBuilder::new(ui)` has no `.id_salt(id)` (`table_view.rs:82`), so column widths and scroll state collide.
-
 #### VIEW-4
 **Buttons ignore capabilities.** — *minor*
 - "Add row" under an empty table and "Create column" in the no-columns state are shown regardless of `is_read_only` or whether `create_row`/`create_column` are supported.
@@ -365,6 +363,10 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **"Clear" has no confirmation.** — *minor*
 - TODO in `tool_column.rs`. A commented-out modal exists in `interaction.rs` (`handle_clear_request`).
 
+#### VIEW-8
+**No touch drag-to-scroll.** — *minor*
+- Since DESIGN-9 the body is not an egui `ScrollArea`, so dragging the body on a touch screen doesn't scroll. Cells sense clicks only, so a body drag could be mapped to `RowLayout::scroll_by` (or used for drag-selection on desktop and drag-scroll on touch).
+
 #### VIEW-7
 **Selection styling uses `warn_fg_color`.** — *minor (visual)*
 - Selection fill and borders use the warning color rather than `visuals.selection`. Vertical selection borders are commented out, so multi-column selections have no side edges.
@@ -375,7 +377,7 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 
 #### FLAGS-1
 **One-shot flags are consumed by the view.** — *major*
-- `show()` archives and zeroes them. A second consumer (a second `TableView`, or app code reading after another view) never sees them, which leads to stale columns and the VIEW-1 panic. If the view isn't shown (collapsed tab), the delayed copy never updates.
+- `show()` archives and zeroes them. A second consumer (a second `TableView`, or app code reading after another view) never sees them, which led to stale columns and the VIEW-1 panic (fixed by DESIGN-9). If the view isn't shown (collapsed tab), the delayed copy never updates.
 
 #### FLAGS-2
 **View events are written into backend flags.** — *design*
@@ -500,9 +502,9 @@ pub trait TableBackend {
 }
 ```
 
-- `TableView` stores `last_seen: Revision` and rebuilds column info / row heights on change.
-  Safety net: also resync when `row_heights.len() != row_count()`, so a backend that forgets to
-  bump a counter shows stale data instead of panicking.
+- `TableView` stores `last_seen: Revision` and rebuilds column info / row order on change.
+  Safety net: also resync when the view's row count differs from `row_count()`, so a backend that
+  forgets to bump a counter shows stale data instead of panicking.
 - App code keeps its own `last_seen` the same way.
 - View-originated events move to the return value of `show()`:
 
@@ -544,7 +546,8 @@ trait; all visual→uid lookups go through view state.
 - Store `column_order: Vec<ColumnUid>` and `column_widths: HashMap<ColumnUid, f32>` in
   `TableViewConfig`.
 - On column set change, keep known columns in user order and append new ones.
-- Use move (insert) semantics for DnD (DND-1, DND-2, DND-5).
+- Use move (insert) semantics for DnD (DND-1, DND-5). Widths are already keyed by `ColumnUid`
+  in view state (`ColumnWidths`, DESIGN-9); this step persists them.
 
 ### DESIGN-5: Focus-based input
 
@@ -558,8 +561,8 @@ focused and no foreign widget wants keyboard input.
 > Superseded by [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) (`TableViewOptions`).
 
 `show(table, config, max_height, ui, id)` is growing. Consider
-`TableView::new(id).max_height(..).show_tool_column(..).show(ui, table, config)`, with `id` passed
-to `TableBuilder::id_salt` (VIEW-3).
+`TableView::new(id).max_height(..).show_tool_column(..).show(ui, table, config)`, with `id`
+salting all view ids (VIEW-3, already fixed by DESIGN-9).
 
 ### DESIGN-7: Optional heavy dependencies
 
@@ -579,8 +582,8 @@ be ported, so there are no compatibility shims.
    selection, the edit buffer, focus, and the paste dialog. Nothing the user sees is ordered by the
    model.
 3. **The view never mutates the model while rendering.** Every view-originated change is pushed to a
-   command queue, and the queue is applied once per frame, after the body has rendered. This fixes
-   VIEW-1 by construction and is the hook for undo/redo.
+   command queue, and the queue is applied once per frame, after the body has rendered. This prevents
+   VIEW-1-style desyncs by construction (VIEW-1 itself was fixed by DESIGN-9) and is the hook for undo/redo.
 4. **Change detection uses revision counters that are never consumed.** Any number of views and app
    code can each compare against their own last-seen value.
 
@@ -697,7 +700,7 @@ impl<M: TableModel> CellUi<M> for VariantCellUi { /* ... */ }
 
 ```rust
 pub struct TableViewOptions {
-    pub id_salt: Id,              // passed to TableBuilder::id_salt (VIEW-3)
+    pub id_salt: Id,              // salts every view id, so several tables can share a Ui
     pub max_height: Option<f32>,
     pub tool_column: bool,
     pub read_only: bool,          // view-level, on top of model capabilities
@@ -769,8 +772,8 @@ queue in `TableViewOutput` instead of applying it, for apps that route edits to 
   active. The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and a
   crate-local Variant comparator, because `rvariant::Variant` doesn't implement `Ord`. Numbers
   compare by value, strings case-insensitively, and empty values sort last.
-- Row heights are rebuilt together with `visible_rows`, and resynced whenever
-  `row_heights.len() != visible_rows.len()` (VIEW-1, VIEW-2).
+- `visible_rows` is `RowLayout`'s row order ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)).
+  Row heights are cached there by `RowUid`, and the scroll anchor follows its row through re-sorts.
 - **Delegated sorting hook:** if `model.sorted_rows(&config.sort)` returns `Some`, the view uses
   that order instead of sorting locally (e.g. a model backed by SQL runs `ORDER BY`). This is one
   optional trait method. The view's structure doesn't change, because it still holds a `Vec<RowUid>`.
@@ -832,6 +835,56 @@ its editor has focus. Shortcuts run only when the table is active. Copy and past
 | `TableBackend::poll` | Inherent method on the model, called by the app |
 | `backend.set_mapping_choices(..)` | `view.options_mut().column_mapping_choices` |
 
+### DESIGN-9: Anchor-based layout without egui_extras
+
+**Status:** accepted and implemented 2026-10-01. Fixes VIEW-1, VIEW-2, VIEW-3, DND-2.
+
+egui_extras' `TableBuilder` needed the total content height up front (a row count plus either one
+row height or a height per visual row, walked every frame), kept column widths by position, and
+didn't expose what the view needed (per-uid widths, scroll position, stable ids). The view now lays
+out the table itself.
+
+- **Scroll anchor.** The vertical position is `(RowUid, offset into that row)`, not a pixel offset
+  from the top. Each frame `RowLayout::normalize` applies scrolling and clamps, then the body lays
+  out rows downwards from the anchor until the viewport is full. Cost is O(visible rows), and the
+  total pixel height of the table is never needed.
+- **Row heights** are measured every frame for visible rows and cached by `RowUid`; unmeasured rows
+  are assumed to be `minimum_row_height`. Rows below a measured row are placed after it in the same
+  frame, so there is no one-frame overflow. Backgrounds are painted into shape placeholders after
+  the row height is known.
+- **Stable scrolling.** Inserting or removing rows above, and (later) re-sorting or filtering, keep
+  the anchored row on screen. If the anchor row disappears, the view stays at its index.
+- **Stick to bottom.** If the last row was in view, appended rows keep the view at the end.
+- **Reveal.** `RowLayout::reveal(idx)` scrolls minimally to bring a row fully into view; arrow keys
+  use it.
+- **Scroll bar** is drawn by the view and works in rows: thumb length = rows in view / row count,
+  position = fractional index of the top row. With very uneven row heights the thumb speed varies
+  slightly. Mouse wheel delta is consumed only when the table actually scrolled.
+- **Columns.** `ColumnWidths` keyed by column (`ColumnKey::Tool` / `Data(ColumnUid)`), so widths
+  follow DnD moves. Auto columns grow to the widest content seen (cells are measured with up to
+  400 px), user resizing fixes the width, double-click on the edge resets to auto. Horizontal
+  scrolling still uses egui `ScrollArea::horizontal`; the header is outside the vertical scroll, so
+  it is always visible.
+- **Cells** are child `Ui`s with a click sense registered below their contents (like egui_extras),
+  laid out top-down, clipped to their column (and to the row in uniform-height mode).
+- **Pixel alignment.** All layout coordinates (scroll offset, row and header heights, column widths
+  and x positions) are rounded with `round_ui()`. Otherwise egui debug builds paint "Unaligned"
+  markers on every cell.
+- **Column width easing.** `ColumnWidths` holds the target width; the shown width eases towards it
+  with `animate_value_with_time` for auto-sizing changes only (not for user drags or the first
+  measurement). A re-fit (double-click) keeps the old width until the new one is measured.
+- **Row set changes** take an incremental path when rows were only appended, so pressing `N` in a
+  10k-row table doesn't rebuild the uid index.
+
+**Fits DESIGN-8:** `RowLayout::rows` is the view-owned row order. Sorting/filtering (step 2) only
+replaces how that `Vec<RowUid>` is built. Paged or unbounded models (the "known limit" in DESIGN-8)
+would replace the `Vec` with model-driven next/prev stepping from the anchor; the layout loop
+already only walks outwards from the anchor.
+
+**Not done yet:** horizontal reveal, Page Up/Down/Home/End, touch drag-to-scroll ([VIEW-8](#view-8)),
+persisting widths ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)), a sticky
+tool column during horizontal scroll.
+
 ---
 
 ## Unused API, dead code and housekeeping
@@ -857,23 +910,25 @@ its editor has focus. Shortcuts run only when the table is active. Copy and past
 
 ## Roadmap
 
-Suggested order; update as items land. Since breaking changes are allowed (all users will be
-ported), the API redesign comes **first**: most crash and data-loss bugs are fixed by it
+Suggested order; update as items land. Breaking changes are preferred whenever they improve the
+design (all users will be ported), so the API redesign comes **first**: most crash and data-loss bugs are fixed by it
 structurally, so patching them in the old code first would be wasted work.
 
 0. **Housekeeping** — `done`: dead modules deleted, never-called trait stubs removed, missing
    derives, `Cargo.toml` versions, `.idea/` untracked.
 1. **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)): `Revision`, `Capabilities`, `TableModel`, `CellUi` + `VariantCellUi`,
    command queue. Port `VariantBackend` → `VariantTable`, the derive macro, the importer and the
-   three demos. Fixes FLAGS-1..5, VIEW-1, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4, PASTE-5.
+   three demos. Fixes FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4, PASTE-5.
 2. **View state rewrite:** uid selection with anchor/cursor, view-owned edit buffer, focus-based
-   input, `TableViewOptions`, view-owned row order (sorting). Fixes EDIT-1..3, EDIT-5..7, EDIT-9,
-   SEL-1..5, VIEW-2..5, DND-3.
-3. **Column order and widths** (DESIGN-4): DND-1, DND-2, DND-4, DND-5, DND-6.
+   input, `TableViewOptions`, view-owned row order (sorting) built into `RowLayout`. Fixes
+   EDIT-1..3, EDIT-5..7, EDIT-9, SEL-1..5, VIEW-4, VIEW-5, DND-3. The anchor-based layout
+   ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)) landed ahead of this step.
+3. **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`.
 4. **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), `write_csv(model, order, impl
    Write) -> Result` (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of
    steps 1–3; can land any time.
-5. **Features:** filtering, undo/redo (inverse commands), scroll-into-view, XLSX import, more
+5. **Features:** filtering, undo/redo (inverse commands), horizontal scroll-into-view, Page Up/Down,
+   touch drag-to-scroll (VIEW-8), XLSX import, more
    editors (EDIT-8), confirmation for Clear (VIEW-6), selection colors (VIEW-7).
 
 Small fixes that are independent of the redesign and can go in at any point: DERIVE-1, DERIVE-5
@@ -887,7 +942,11 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 
 | ID | Fixed in | Note |
 |----|----------|------|
-| — | — | — |
+| VIEW-1 | _pending_ | Body iterates the view's row order, resynced after the header and on row count change; no `unwrap`. (DESIGN-9) |
+| VIEW-2 | _pending_ | Row heights cached by `RowUid`. (DESIGN-9) |
+| VIEW-3 | _pending_ | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
+| VIEW-9 | _pending_ | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
+| DND-2 | _pending_ | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 
 ---
 

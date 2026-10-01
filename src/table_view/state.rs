@@ -1,9 +1,16 @@
+use super::layout::{ColumnWidths, RowLayout};
+use egui::Rect;
 use std::collections::HashMap;
 use tabular_core::backend::BackendColumn;
 use tabular_core::{CellCoord, ColumnUid};
 
 pub(super) struct State {
-    pub(super) row_heights: Vec<f32>,
+    pub(super) rows: RowLayout,
+    pub(super) column_widths: ColumnWidths,
+    /// Measured on the previous frame.
+    pub(super) header_height: f32,
+    /// Header and body area of the previous frame, for mouse wheel hit testing.
+    pub(super) table_rect: Option<Rect>,
     pub(super) columns_ordered: Vec<ColumnUid>,
     pub(super) columns: HashMap<ColumnUid, BackendColumn>,
     pub(super) selected_range: Option<SelectedRange>,
@@ -20,7 +27,10 @@ pub(super) struct State {
 impl Default for State {
     fn default() -> Self {
         State {
-            row_heights: vec![],
+            rows: RowLayout::default(),
+            column_widths: ColumnWidths::default(),
+            header_height: 20.0,
+            table_rect: None,
             columns_ordered: Vec::new(),
             columns: Default::default(),
             selected_range: None,
