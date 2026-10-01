@@ -7,9 +7,12 @@ broken and what is planned. README.md is the public pitch; this file is the engi
   commit** (see [Maintaining this file](#maintaining-this-file)).
 - Issue IDs (`EDIT-1`, `DND-3`, ...) are stable. Never renumber or reuse an ID; mark it fixed instead.
 - File/line references were taken at commit `29fddab` and will drift; the function name is the
-  durable anchor.
+  durable anchor. Many `table_view.rs` line numbers already moved with DESIGN-9; refresh them when
+  touching an entry.
 
-Last full review: 2026-10-01 (baseline `29fddab`, egui 0.36, egui_extras 0.36.1). The breaking
+Last full review: 2026-10-01 (baseline `29fddab`, egui 0.36, egui_extras 0.36.1). Gap review
+against other table implementations (Qt, TanStack, AG Grid, Glide, Excel/Sheets, egui-data-table):
+2026-10-01, see [Goals, use cases and targets](#goals-use-cases-and-targets) and DESIGN-10 – DESIGN-14. The breaking
 redesign in [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) is in progress.
 egui_extras was dropped in [DESIGN-9](#design-9-anchor-based-layout-without-egui_extras).
 
@@ -22,15 +25,16 @@ egui_extras was dropped in [DESIGN-9](#design-9-anchor-based-layout-without-egui
 ## Contents
 
 1. [Status legend](#status-legend)
-2. [Crate layout](#crate-layout)
-3. [Feature inventory](#feature-inventory)
-4. [Keyboard and mouse reference](#keyboard-and-mouse-reference)
-5. [Known bugs](#known-bugs)
-6. [Design issues and planned rework](#design-issues-and-planned-rework)
-7. [Unused API, dead code and housekeeping](#unused-api-dead-code-and-housekeeping)
-8. [Roadmap](#roadmap)
-9. [Fixed issues](#fixed-issues)
-10. [Maintaining this file](#maintaining-this-file)
+2. [Goals, use cases and targets](#goals-use-cases-and-targets)
+3. [Crate layout](#crate-layout)
+4. [Feature inventory](#feature-inventory)
+5. [Keyboard and mouse reference](#keyboard-and-mouse-reference)
+6. [Known bugs](#known-bugs)
+7. [Design issues and planned rework](#design-issues-and-planned-rework)
+8. [Unused API, dead code and housekeeping](#unused-api-dead-code-and-housekeeping)
+9. [Roadmap](#roadmap)
+10. [Fixed issues](#fixed-issues)
+11. [Maintaining this file](#maintaining-this-file)
 
 ---
 
@@ -51,6 +55,57 @@ The same icons mark roadmap steps.
 
 Severity for bugs: **crash** (panic), **data-loss** (user edits or data silently lost/corrupted),
 **major** (feature visibly broken), **minor** (cosmetic or edge case).
+
+---
+
+## Goals, use cases and targets
+
+### Use cases
+
+The design has to serve all of these. When a change helps one and hurts another, record the
+trade-off here.
+
+| # | Use case | Model | What matters most |
+|---|----------|-------|-------------------|
+| U1 | **Import and map** CSV/XLSX files to required columns | `VariantTable` via `TabularImporter` | Column mapping, skip rows/columns, paste, export, error highlighting. |
+| U2 | **Editable in-memory tables** | `VariantTable` | Spreadsheet-grade keyboard, clipboard, undo, sort, filter. |
+| U3 | **Live data from hardware buses** (CAN, I2C, USART, SPI): bus traces, register maps, decoded signals | Custom model over the app's own structs, often **without `Variant` values** | Many updates per second, appends and evictions every frame, stick to bottom, custom widgets in cells (some interactive, e.g. writing a register), one data lookup per row (DESIGN-10). |
+| U4 | **Read-only views of `Vec<Struct>`** | `#[derive(TabularRow)]` | Zero boilerplate, copy/export work. |
+| U5 | **Database or remote data** | Custom model, delegated sorting | Rows not all in memory; row uids enumerable (see the DESIGN-8 known limit). |
+
+### Feature availability for models without values
+
+U3 models may render everything through a custom `CellUi` and return `None` from
+`TableModel::get` for some or all columns ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)).
+The view must degrade per column, never panic or show broken UI. Features that need a value:
+
+| Feature | Needs | Without it |
+|---------|-------|------------|
+| Rendering, selection, navigation, scrolling, column resize/reorder/hide, row heights, stick to bottom | nothing | Works fully. |
+| Copy, CSV/XLSX export, find, quick filter | `get()` or `CellUi::text()` | Cells without either copy as empty; the column is left out of find/filter. |
+| Sort by column | `get()` (or `sorted_rows` delegation) | "Sort" is disabled for the column. |
+| Built-in editing (`VariantCellUi`), paste, Delete/clear, fill | `get()` + `set()` + `Capabilities::edit_cells` | Read-only; a custom `CellUi` may still host interactive widgets that write through `&mut M`. |
+| Selection status bar (sum/avg/count) | numeric `get()` | Shows count only. |
+| Undo/redo | view commands | Only covers view-originated commands; writes done by custom widgets are not undoable. |
+
+### Non-goals
+
+- An Excel or Google Sheets replacement: no formulas, merged cells, multiple disjoint selections,
+  or charts.
+- Tables whose row uids can't be enumerated (see the DESIGN-8 known limit). Not a redesign if
+  needed later.
+
+### Performance targets
+
+📋 Not measured yet; a headless benchmark should check these (see
+[housekeeping](#unused-api-dead-code-and-housekeeping)). Release build, desktop CPU.
+
+| Scenario | Target |
+|----------|--------|
+| Scrolling a 1M-row `VariantTable`, 20 columns | < 2 ms view time per frame |
+| Live model appending 1000 rows/s and evicting from the front, stick to bottom | < 1 ms per frame, no O(row count) work per frame (DESIGN-11) |
+| Local sort of 1M rows by one column | < 150 ms |
+| Row-builder `CellUi` (DESIGN-10) | One model lookup per visible row per frame |
 
 ---
 
@@ -96,9 +151,15 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Read-only tables | 🐛 buggy | `VariantBackend::set_read_only` has no effect ([BACKEND-1](#backend-1)); several buttons ignore read-only ([VIEW-4](#view-4)). |
 | Remote/lazy backends | 💡 idea | The never-called `reload`, `poll`, `commit_all`, `commit_immediately` stubs were removed in step 0. Server-side sorting has a planned hook ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"). |
 | Column "used" vs "available" | 🚧 partial | `used_columns()` exists, but `VariantBackend` doesn't override it. `use_column` (a no-op) was removed in step 0. DESIGN-8 folds this into `ColumnInfo::is_used`. |
-| Undo / redo | 📋 planned | |
-| Sorting | ⬜ stub | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
-| Filtering | 📋 planned | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
+| Undo / redo | 📋 planned | Command `apply` returns the inverse command from the first implementation ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Command queue"). |
+| Sorting | ⬜ stub | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI and stability policy in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Filtering | 📋 planned | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Typed column type (`VariantTy`, or none for custom columns) | 📋 planned | Today `ty: String`, which the view can't use to pick an editor for empty cells, align numbers or compare. [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) amendment. |
+| Remove / rename columns, insert rows at a position | 📋 planned | Only append and create exist. New capabilities and commands in [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui). |
+| Move rows (drag in the tool column) | 💡 idea | Needs a model-side order (`move_rows`), since the view's row order is otherwise natural or sorted. |
+| Hierarchical rows (expand a frame into decoded signals, group by) | 💡 idea | U3. Would be a view-side row-order stage after filter/sort; tree depth drawn in the tool column. |
+| Row uid contract (stable for a row's life, never reused) | 📋 planned | Not written down today; selection, scroll anchor and height cache rely on it. `RowUid` is `u32`, too small for long-running traces ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)). |
+| Batched value access for copy/export/sort | 📋 planned | Optional `TableModel::row_values` with a per-cell default ([DESIGN-10](#design-10-row-builder-for-cell-ui)). |
 
 ### `VariantBackend`
 
@@ -110,6 +171,30 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | 🚧 partial | No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). Enum doesn't commit on selection ([EDIT-6](#edit-6)). |
 | Column mapping choices (combo box above columns) | ✅ done | Stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`. |
 | Date, SI values, currency viewers/editors | 📋 planned | |
+| Numbers edited as parsed text instead of `DragValue` | 📋 planned | `DragValue` in a grid changes values on an accidental drag ([EDIT-11](#edit-11)). Keep `DragValue` as an opt-in. |
+| Searchable enum editor | 📋 planned | ComboBox with a filter box for long enum lists. |
+| Multi-line text editing (Alt+Enter inserts a newline) | 📋 planned | Needs the editor overlay ([DESIGN-12](#design-12-editor-overlay)). |
+| Change a column's type from the UI | 💡 idea | `turn_column_into` is code-only; a header menu "Convert to…" would expose it. |
+
+### Live data and custom models
+
+Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
+[DESIGN-11](#design-11-live-data-and-models-without-variant-values).
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Custom cell UI with any egui widget | ✅ done | `TableFrontend::show_cell_view`; becomes `CellUi`. |
+| Row builder: one model lookup per row, cells filled by column ([DESIGN-10](#design-10-row-builder-for-cell-ui)) | 📋 planned | Today every cell re-queries the model. |
+| Models without `Variant` values (`get` optional), per-column degradation | 📋 planned | See the availability table in [Goals](#goals-use-cases-and-targets). Today `get` has a default but copy/export silently produce nothing. |
+| Text for custom cells (`CellUi::text`) for copy/export/find | 📋 planned | |
+| Cheap append + front eviction (ring buffer traces) | 🚧 partial | Every row-set change collects all uids into a new `Vec` and compares prefixes (`RowLayout::sync`), so even appends are O(row count); appends then index only the new rows. Front eviction re-indexes everything. A trace that appends every frame pays O(row count) per frame. Planned `rows_log` ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)). |
+| Stick to bottom | 🚧 partial | See Table view; needs to be an option and to survive eviction. |
+| Scroll position kept while rows are evicted above | ✅ done | The anchor is a `RowUid`; if the anchored row itself is evicted the view stays at its index. |
+| Sort/filter policy for constantly changing values (live re-sort vs. on demand) | 📋 planned | [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Highlight changed values (flash that fades) | 📋 planned | `CellLevel::Changed` + fade in the view, or per-cell "changed at" in metadata. |
+| Pause / freeze display while data keeps coming | 💡 idea | View-side snapshot of `visible_rows` plus "N new rows" badge; app keeps receiving. |
+| Live data demo (simulated CAN bus trace + register map) | 📋 planned | `demos/live`; also the benchmark scenario. |
+| 64-bit `RowUid` | 📋 planned | A 1 kHz bus overflows `u32` in about 50 days, 8 kHz in under a week, and uids must never be reused. |
 
 ### Table view
 
@@ -133,7 +218,27 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Selection: single cell, rectangle, whole row, select all | 🐛 buggy | See [SEL-*](#selection-and-keyboard). |
 | Scroll selection into view on keyboard navigation | 🚧 partial | Vertical only (arrow keys). No horizontal reveal yet. |
 | Page Up / Page Down / Home / End | 📋 planned | Trivial with the anchor: move it by what fit on screen. |
-| Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable. |
+| Ctrl+Arrow (jump to the data edge), Ctrl+Home / Ctrl+End | 📋 planned | Excel/Sheets convention. Edge = last non-empty cell before an empty one, or the table edge. |
+| Shift+Tab, Shift+Enter move backwards; Enter after commit moves down; Tab wraps at row end | 📋 planned | Excel convention. Today Enter stays on the cell and Tab stops at the last column. |
+| Column selection (click header, Ctrl+Space) and Shift+Space row selection | 📋 planned | `Selection.kind` gets `Columns` (DESIGN-8 amendment). Header click today starts a drag only. |
+| Drag-select cells with the mouse | 📋 planned | Only Shift+click extends today. On touch, body drag scrolls instead ([VIEW-8](#view-8)). |
+| Selected rows/columns highlighted in headers and row numbers | 📋 planned | [DESIGN-14](#design-14-look-and-feel). |
+| Active cell drawn separately from the selected range | 📋 planned | [DESIGN-14](#design-14-look-and-feel); folds in [VIEW-7](#view-7). |
+| Cell context menu (copy, cut, paste, clear, insert/delete row) | 📋 planned | Only the tool column and headers have menus. |
+| Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 📋 planned | Only getters are planned in DESIGN-8. Needed for "jump to error", "select imported row". DESIGN-8 amendment. |
+| Find (Ctrl+F): highlight matches, next/previous | 📋 planned | Distinct from filtering; uses `get()`/`CellUi::text()`. [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Hide columns and a column chooser to show them again | 📋 planned | `hidden_columns` is planned in config, but without a chooser hidden columns can't be restored. Chooser lives in the tool-column header menu. |
+| Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
+| Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Needs the new capabilities (DESIGN-8 amendment). |
+| Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
+| Long text ends with "…" and shows the full text on hover | 📋 planned | Text is clipped at the column edge today. [DESIGN-14](#design-14-look-and-feel). |
+| Alignment by column type (numbers right-aligned, tabular digits) | 📋 planned | Everything is left-aligned. Needs the typed column type. |
+| Density (padding, row height) and grid line settings | 📋 planned | `TableStyle`, [DESIGN-14](#design-14-look-and-feel). |
+| Semantic cell colors (info/warning/error/changed) that follow the theme | 📋 planned | `CellMetadata` uses fixed `Rgb`, unreadable in dark mode ([VIEW-11](#view-11)). |
+| Selection status bar (count, sum, average) | 📋 planned | Optional footer. Count only without numeric values. |
+| Empty, loading and error states | 🚧 partial | "No columns" and "Add row" states exist ([VIEW-4](#view-4)). No loading state for lazy models (`CellState::Loading`, U5). |
+| User feedback for refused or failed actions | 📋 planned | Only logged today ([VIEW-10](#view-10)). Becomes `TableEvent::Message`, the app shows a toast. |
+| Striped rows, hover highlight | ✅ done | Odd rows use `faint_bg_color`, the hovered row `widgets.hovered.bg_fill`. |
 | Scroll to a newly appended row | ✅ done | `N`, "Append row" in the tool column menus and the "Add row" button. |
 | Visual state persistence (`TableViewConfig` is serde) | 🚧 partial | Column order and widths are not persisted ([DND-5](#dnd-5)). |
 | Custom column header UI (`TableFrontend::custom_column_ui`) | ✅ done | |
@@ -147,6 +252,13 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Enter commits, Escape cancels, Tab commits and edits next cell | 🐛 buggy | [EDIT-1](#edit-1) – [EDIT-4](#edit-4), [EDIT-6](#edit-6). |
 | Commit on focus loss / click outside | 📋 planned | [EDIT-3](#edit-3). |
 | Start editing by typing / Enter / F2 / double-click | 📋 planned | [EDIT-9](#edit-9). |
+| Delete / Backspace clears the selected cells | 📋 planned | Pushes one `Set { Empty }` per cell as one undoable command. Respects capabilities and skipped/read-only columns. |
+| Cut (Ctrl+X) | 📋 planned | Copy + clear; via `Event::Cut`. |
+| Ctrl+Enter writes the typed value into every selected cell | 📋 planned | Excel convention. |
+| Fill down / right (Ctrl+D / Ctrl+R) | 📋 planned | |
+| Fill handle (drag the selection corner) | 💡 idea | Glide/Excel. Copy only, no series detection. |
+| Editor drawn above the cell, rows never change height | 📋 planned | [DESIGN-12](#design-12-editor-overlay); fixes [EDIT-5](#edit-5) structurally. |
+| Inline validation error (editor stays open with the error) | 📋 planned | DESIGN-8 "Edit lifecycle". |
 
 ### Clipboard
 
@@ -157,6 +269,11 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Paste into empty table creates columns and rows | ✅ done | |
 | Paste dialog for size mismatch (create rows, repeat fill, create columns) | 🐛 buggy | [PASTE-1](#paste-1) – [PASTE-4](#paste-4). |
 | Paste "overflow" mode | 📋 planned | Commented-out button in `handle_paste_continue`. |
+| Paste a 1×1 value, or a block that tiles the selection evenly, without a dialog | 📋 planned | Excel/Sheets fill the selection silently; the dialog is for real size mismatches only. |
+| Copy raw values (round-trip) rather than displayed text | 📋 planned | Decide per column: `get()` value via a canonical `to_string`, not the viewer's formatting (Qt's display vs. edit role). Custom cells use `CellUi::text()`. |
+| Copy with headers | 📋 planned | Option or a context menu entry. |
+| Report cells that failed to parse on paste | 📋 planned | Error metadata on the cell plus a summary `TableEvent::Message` (PASTE-5 follow-up). |
+| Rich clipboard (HTML table) | 💡 idea | egui only exposes text today. |
 
 ### Import / export
 
@@ -181,6 +298,18 @@ display order with the scroll anchor and row heights, selection, and paste state
 | Column names from field names (Sentence case), type shown in header | ✅ done | |
 | `#[format = "..."]` per field | 🐛 buggy | Output wrapped in literal quotes ([DERIVE-1](#derive-1)). |
 | Copy / CSV export from derived tables | 📋 planned | `get()` not generated ([DERIVE-4](#derive-4)). |
+
+### Accessibility, internationalization and platforms
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| AccessKit grid semantics (grid/row/cell roles, row and column index, selected state, cell value as label) | 📋 planned | Cells have role `Unknown` and no label today. Also makes empty cells reachable in UI tests without `click_at`. |
+| Keyboard-only operation (no mouse needed) | 🚧 partial | Needs focus-based input (SEL-4) and keyboard access to menus (Shift+F10 / Menu key). |
+| Translatable UI strings | 💡 idea | "Append row (N)", paste dialog, menus are hard-coded English. A `TableStrings` struct in `TableViewOptions`. |
+| Right-to-left layout | 💡 idea | Not planned unless asked for. |
+| wasm | 🚧 partial | Builds are untested; `rfd` and the blocking save dialog don't work there ([EXPORT-4](#export-4), DESIGN-7). No web demo (README TODO). |
+| Touch | 🐛 buggy | No drag-to-scroll ([VIEW-8](#view-8)); resize handles are thin. |
+| macOS shortcuts (Cmd) | 🐛 buggy | [SEL-5](#sel-5). |
 
 ---
 
@@ -211,6 +340,32 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Escape | Editing | Cancel edit. Doesn't clear the backend buffer if the pointer is outside the table ([EDIT-2](#edit-2)). |
 | Escape | Not editing | Clear selection. |
 | Tab | Editing | Commit, move right, edit. Wrong column after reorder ([EDIT-4](#edit-4)). |
+
+### Planned input (target behavior)
+
+Follows Excel/Sheets conventions unless noted. Move rows to the table above as they land. Shortcuts
+run only while the table is active (focus-based, DESIGN-8).
+
+| Input | Context | Behavior |
+|-------|---------|----------|
+| Enter / F2 / double-click / typing a character | Not editing | Start editing (typing seeds a text editor with the character). Replaces `E`. |
+| Enter / Shift+Enter | Editing | Commit and move down / up. |
+| Tab / Shift+Tab | Editing or not | Commit and move right / left; wraps to the next / previous row. |
+| Ctrl+Enter | Editing, multi-cell selection | Write the value into every selected cell. |
+| Alt+Enter | Editing a text cell | Insert a newline (Excel convention; Shift+Enter is "move up"). |
+| Delete / Backspace | Not editing | Clear selected cells. |
+| Ctrl/Cmd+X | Not editing | Cut. |
+| Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z (Ctrl+Y) | Not editing | Undo / redo. |
+| Ctrl+D / Ctrl+R | Not editing | Fill down / right. |
+| Ctrl+Arrow, Ctrl+Home / Ctrl+End | Not editing | Jump to the data edge / table corners (+Shift extends). |
+| Home / End, Page Up / Page Down | Not editing | Row start / end; move by one screen (+Shift extends). |
+| Ctrl+Space / Shift+Space | Not editing | Select column / row. |
+| Ctrl/Cmd+F | Table active | Find. |
+| Click header | — | Select column. Shift/Ctrl+click extends. Sorting moves to a sort indicator in the header (DESIGN-13). |
+| Double-click header | Columns renamable | Rename column. |
+| Drag over cells | Desktop | Select range. On touch: scroll ([VIEW-8](#view-8)). |
+| Right-click cell | — | Cell context menu. |
+| Shift+F10 / Menu key | Not editing | Context menu for the active cell. |
 
 ---
 
@@ -279,6 +434,12 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 - `resp.double_clicked_by(..) {}` is an empty branch (`table_view.rs:580`).
 - No Enter/F2/type-to-edit.
 - Test (ignored, fails): `editing::f2_starts_editing`.
+
+#### EDIT-11
+**Integer editors are `DragValue`s: a small drag changes the value.** — *minor (UX)*
+- Where: `VariantBackend::show_cell_editor` (U32/U64/I32/I64).
+- Effect: clicking into the editor and moving the mouse slightly while pressed changes the number. Grids (Excel, AG Grid, Glide) edit numbers as text and parse on commit.
+- Fix: a parsing `TextEdit` with validation in `VariantCellUi`; `DragValue` as an opt-in per column.
 
 ### Column drag & drop
 
@@ -388,6 +549,18 @@ Option<(CellCoord, Variant)>`. Many exit paths update one but not the other. See
 **Selection styling uses `warn_fg_color`.** — *minor (visual)*
 - Selection fill and borders use the warning color rather than `visuals.selection`. Vertical selection borders are commented out, so multi-column selections have no side edges.
 
+#### VIEW-10
+**Refused actions are only logged.** — *minor (UX)*
+- Where: `handle_paste` (`interaction.rs:159`, "Refusing to paste without selection", `TODO: forward to toast`).
+- Effect: the user presses Ctrl+V and nothing visible happens.
+- Fix: `TableEvent::Message { level, text }` in `TableViewOutput`; the app shows it (toast, status line).
+
+#### VIEW-11
+**Cell colors are fixed RGB and ignore the theme.** — *minor (visual)*
+- Where: `CellMetadata::{color, corner}: Option<Rgb>`.
+- Effect: a light warning background chosen for light mode leaves light text unreadable in dark mode, and the other way round.
+- Fix: semantic `CellLevel` (`Info`, `Warning`, `Error`, `Changed`) mapped to the current `Visuals` ([DESIGN-14](#design-14-look-and-feel)); keep `Custom(Rgb)` as an escape hatch, with text color picked by contrast.
+
 ### Flags and change notification
 
 See [DESIGN-1](#design-1-flags-system) for the planned replacement.
@@ -491,6 +664,28 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 **Tuple structs generate invalid field access.** — *minor*
 - Unnamed fields generate `row._0` instead of `row.0`.
 
+### Documentation
+
+#### DOC-1
+**README links `TableBackend` to `src/backend.rs`, which doesn't exist.** — *minor*
+- The trait lives in `tabular_core/src/backend.rs` (and becomes `TableModel` in DESIGN-8).
+
+#### DOC-2
+**README says skipped rows show "a hatch pattern".** — *minor*
+- `VariantBackend::show_cell_view` crosses the cell out with two diagonal lines. Since DESIGN-8 the view draws the skipped state; decide on one look and document it.
+
+#### DOC-3
+**README claims "No need to keep all data in memory".** — *minor*
+- True for cell values, but the view holds every row uid (DESIGN-8 known limit). Say so.
+
+#### DOC-4
+**README shortcut list is stale.** — *minor*
+- Lists `E` (dropped in favor of F2 by DESIGN-8) and is maintained by hand. Should follow the keyboard reference in this file.
+
+#### DOC-5
+**Public API is barely documented.** — *minor*
+- `src/table_view.rs` has 17 doc comments, `tabular_core/src/lib.rs` none. No crate-level docs or examples in rustdoc. Target: every public item documented and `#![warn(missing_docs)]` once DESIGN-8 lands.
+
 ---
 
 ## Design issues and planned rework
@@ -593,6 +788,12 @@ a feature (e.g. `file-dialogs`), and expose export as `fn write_csv(table, impl 
 DESIGN-1, DESIGN-2, DESIGN-3 and DESIGN-6, and absorbs DESIGN-5. Every known downstream user will
 be ported, so there are no compatibility shims.
 
+**Amended 2026-10-01 (gap review):** optional `get` and per-column degradation for models without
+values (DESIGN-11), typed column type, more capabilities and commands, row builder `CellUi::show_row`
+(DESIGN-10), `CellUi::text`, column selections, programmatic control, the row uid contract,
+`TableEvent::Message`, and undo inverses from the first implementation. The code blocks below
+include the amendments.
+
 #### Principles
 
 1. **The model is data only.** `TableModel` lives in `tabular_core` and has no egui dependency.
@@ -602,8 +803,18 @@ be ported, so there are no compatibility shims.
 3. **The view never mutates the model while rendering.** Every view-originated change is pushed to a
    command queue, and the queue is applied once per frame, after the body has rendered. This prevents
    VIEW-1-style desyncs by construction (VIEW-1 itself was fixed by DESIGN-9) and is the hook for undo/redo.
+   **The one exception** is custom cell UI: `CellUi` gets `&mut M` so a cell can host a live
+   widget (e.g. a register write button, U3). Such writes bypass the queue and undo, and must not
+   change the row or column set during rendering; a model that needs that queues it internally.
 4. **Change detection uses revision counters that are never consumed.** Any number of views and app
    code can each compare against their own last-seen value.
+5. **Values are optional.** A model may render purely through a custom `CellUi` and return no
+   `Variant`s. Features that need values degrade per column (see
+   [Goals](#goals-use-cases-and-targets), "Feature availability").
+6. **Row uids are stable identities.** A `RowUid` names the same row for its whole life and is never
+   reused for another row within the model's life (selection, scroll anchor, height cache and undo
+   key on it). A reload that creates new rows gives them new uids, so selection and scroll position
+   are dropped; a model that wants them kept across reloads keeps the uids.
 
 #### Core types (`tabular_core`)
 
@@ -622,8 +833,11 @@ pub struct Revision {
 pub struct Capabilities {
     pub edit_cells: bool,
     pub create_rows: bool,
+    pub insert_rows: bool,     // at a position, not only append
     pub remove_rows: bool,
     pub create_columns: bool,
+    pub remove_columns: bool,
+    pub rename_columns: bool,
     pub clear: bool,
     pub skip_rows: bool,
     pub skip_columns: bool,
@@ -633,7 +847,11 @@ pub struct Capabilities {
 pub struct ColumnInfo {
     pub name: String,
     pub synonyms: Vec<String>,
-    pub ty: String,
+    /// Value type of the column. Picks the editor for empty cells, alignment and comparison.
+    /// None = custom column without values (DESIGN-11): not sortable, not editable by VariantCellUi.
+    pub ty: Option<VariantTy>,
+    /// Shown in the header; defaults to `ty`'s name. Free text, e.g. "u8 (CAN DLC)".
+    pub type_label: Option<String>,
     pub is_sortable: bool,
     pub is_required: bool,
     pub is_used: bool,
@@ -641,6 +859,9 @@ pub struct ColumnInfo {
 }
 
 pub enum ModelError { Unsupported, TypeMismatch { expected: VariantTy }, Other(String) }
+
+/// Where a new row goes.
+pub enum RowPosition { Append, Before(RowUid), After(RowUid) }
 
 pub trait TableModel {
     fn revision(&self) -> Revision;
@@ -652,18 +873,26 @@ pub trait TableModel {
     /// Natural row order (insertion / file order). Never sorted or filtered by the view's state.
     fn rows(&self) -> impl Iterator<Item = RowUid>;
     fn row_count(&self) -> usize { self.rows().count() } // override when O(1)
+    /// Optional counters that let the view update appends and front evictions in O(changed)
+    /// instead of rebuilding (live data, DESIGN-11). None = rebuild on every `revision.rows` change.
+    fn rows_log(&self) -> Option<RowsLog> { None }
 
     /// `Cow` so that computed models (derive macro) can return owned values and stored
     /// models can return references (sorting 1M rows must not clone every string).
-    fn get(&self, coord: CellCoord) -> Option<Cow<'_, Variant>>;
+    /// Optional: models that render only through a custom CellUi return None (DESIGN-11).
+    fn get(&self, coord: CellCoord) -> Option<Cow<'_, Variant>> { None }
+    /// Batched form for copy/export/sort: one lookup per row (DESIGN-10). Default calls `get`.
+    fn row_values(&self, row: RowUid, cols: &[ColumnUid], out: &mut Vec<Option<Variant>>) { /* get() per col */ }
     fn metadata(&self, coord: CellCoord) -> Option<Cow<'_, CellMetadata>> { None }
     fn is_row_skipped(&self, row: RowUid) -> bool { false }
 
     // Mutations. Defaults return Err(Unsupported); the view checks capabilities() first.
     fn set(&mut self, coord: CellCoord, value: Variant) -> Result<(), ModelError>;
-    fn create_row(&mut self, values: Vec<(ColumnUid, Variant)>) -> Result<RowUid, ModelError>;
+    fn create_row(&mut self, at: RowPosition, values: Vec<(ColumnUid, Variant)>) -> Result<RowUid, ModelError>;
     fn remove_rows(&mut self, rows: &[RowUid]) -> Result<(), ModelError>;
     fn create_column(&mut self) -> Result<ColumnUid, ModelError>;
+    fn remove_columns(&mut self, cols: &[ColumnUid]) -> Result<(), ModelError>;
+    fn rename_column(&mut self, col: ColumnUid, name: String) -> Result<(), ModelError>;
     fn clear(&mut self) -> Result<(), ModelError>;
     fn skip_rows(&mut self, rows: &[RowUid], skipped: bool) -> Result<(), ModelError>;
     fn skip_column(&mut self, col: ColumnUid, skipped: bool) -> Result<(), ModelError>;
@@ -672,6 +901,10 @@ pub trait TableModel {
     fn sorted_rows(&self, keys: &[SortKey]) -> Option<Vec<RowUid>> { None }
 }
 ```
+
+`CellMetadata` replaces `color`/`corner: Option<Rgb>` with a semantic `level: Option<CellLevel>`
+(`Info`, `Warning`, `Error`, `Changed`, `Custom(Rgb)`) mapped to the theme by the view (VIEW-11,
+DESIGN-14). A `loading: bool` marks cells of lazy models (U5) that the view draws as placeholders.
 
 Removed from the contract: `PersistentFlags`, `OneShotFlags` and the five flag methods,
 `col_uid(VisualColIdx)`, `row_uid(VisualRowIdx)`, `VisualRowIdx`/`VisualColIdx` (they become
@@ -684,9 +917,14 @@ options), and `set_metadata` (becomes inherent on `VariantTable`; the trait only
 
 ```rust
 pub trait CellUi<M: TableModel> {
-    /// View mode. `&mut M` because cells may host live interactive widgets
-    /// (e.g. hardware state polled through the model).
-    fn show_cell(&mut self, model: &mut M, coord: CellCoord, ui: &mut Ui);
+    /// View mode for one visible row. Look the row up once, then fill cells by column
+    /// (DESIGN-10). The default calls `show_cell` for each cell the view wants.
+    fn show_row(&mut self, model: &mut M, row: RowUid, cells: &mut RowCells<'_>) { /* ... */ }
+    /// View mode for one cell. `&mut M` because cells may host live interactive widgets
+    /// (e.g. hardware state polled through the model). Implement this or `show_row`.
+    fn show_cell(&mut self, model: &mut M, coord: CellCoord, ui: &mut Ui) {}
+    /// Plain text for copy, export and find when `model.get()` has no value (DESIGN-11).
+    fn text(&self, model: &M, coord: CellCoord) -> Option<String> { None }
     /// Initial edit value; None = this cell is not editable.
     fn begin_edit(&mut self, model: &M, coord: CellCoord) -> Option<Variant> {
         model.get(coord).map(Cow::into_owned)
@@ -712,7 +950,8 @@ impl<M: TableModel> CellUi<M> for VariantCellUi { /* ... */ }
   strike-through. `cell_color`/`cell_tooltips`/`cell_corner` leave the frontend, so custom cell UIs
   get them for free.
 - The view requests focus on the editor's first frame, and handles Enter/Escape/Tab/lost focus
-  uniformly, so `CellUi` implementors don't reimplement the lifecycle.
+  uniformly, so `CellUi` implementors don't reimplement the lifecycle. The editor is drawn in an
+  overlay above the cell ([DESIGN-12](#design-12-editor-overlay)).
 
 #### View
 
@@ -724,6 +963,8 @@ pub struct TableViewOptions {
     pub read_only: bool,          // view-level, on top of model capabilities
     pub stick_to_bottom: bool,
     pub column_mapping_choices: Vec<String>,
+    pub sort_policy: SortPolicy,  // DESIGN-13
+    pub style: TableStyle,        // DESIGN-14
 }
 
 impl TableView {
@@ -736,6 +977,14 @@ impl TableView {
     pub fn selection(&self) -> Option<&Selection>;
     pub fn visible_rows(&self) -> &[RowUid];
     pub fn visible_columns(&self) -> &[ColumnUid];
+
+    // Programmatic control (applied at the start of the next `show`).
+    pub fn set_selection(&mut self, selection: Option<Selection>);
+    pub fn scroll_to(&mut self, row: RowUid, align: Option<Align>); // None = minimal reveal
+    pub fn scroll_to_column(&mut self, col: ColumnUid);
+    pub fn start_edit(&mut self, coord: CellCoord);
+    pub fn cancel_edit(&mut self);
+    pub fn request_focus(&mut self);
 }
 
 /// User preferences; serde, owned and persisted by the app.
@@ -760,6 +1009,8 @@ pub enum TableEvent {
     ColumnsReordered,
     SortChanged,
     RowsCreated(Vec<RowUid>),
+    /// Feedback for the user ("Nothing selected to paste into", "3 cells failed to parse").
+    Message { level: CellLevel, text: String }, // VIEW-10
 }
 ```
 
@@ -769,9 +1020,12 @@ pub enum TableEvent {
 pub enum TableCommand {
     Set { coord: CellCoord, value: Variant },
     Paste { anchor: (RowUid, ColumnUid), block: Vec<Vec<String>>, mode: PasteMode },
-    CreateRows { count: usize },
+    SetMany(Vec<(CellCoord, Variant)>), // Delete/clear, Ctrl+Enter, fill: one undo step
+    CreateRows { at: RowPosition, count: usize },
     CreateColumn,
     RemoveRows(Vec<RowUid>),
+    RemoveColumns(Vec<ColumnUid>),
+    RenameColumn { col: ColumnUid, name: String },
     Clear,
     SkipRows { rows: Vec<RowUid>, skipped: bool },
     SkipColumn { col: ColumnUid, skipped: bool },
@@ -779,15 +1033,22 @@ pub enum TableCommand {
 ```
 
 `Paste` is one compound command because it may create columns and then write into them. Its apply
-step calls `create_column`, `create_row` and `set` in sequence. Possible later extensions (not in
-step 1): `apply` returns the inverse operations (undo), and a `defer_commands` option returns the
-queue in `TableViewOutput` instead of applying it, for apps that route edits to a server.
+step calls `create_column`, `create_row` and `set` in sequence.
+
+**Undo from the start.** `apply` returns the inverse command (`Set` returns the old value,
+`CreateRows` returns `RemoveRows`, ...) from the first implementation in step 1, even before an undo
+UI exists. Retrofitting inverses later means revisiting every command. `RemoveRows`/`RemoveColumns`/
+`Clear` inverses need the removed data, so their inverse is only available when the model can
+re-insert with the same uids; otherwise they clear the undo stack (and the UI says so). Possible later
+extension: a `defer_commands` option returns the queue in `TableViewOutput` instead of applying it,
+for apps that route edits to a server.
 
 **Row order.**
 
 - The view holds `visible_rows: Vec<RowUid>`. It is rebuilt when `revision.rows` changes, when
   `config.sort` or the filter changes, or when `revision.cells` changes while a sort or filter is
-  active. The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and a
+  active and `SortPolicy` allows it (edits made in this view never re-sort,
+  [DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and a
   crate-local Variant comparator, because `rvariant::Variant` doesn't implement `Ord`. Numbers
   compare by value, strings case-insensitively, and empty values sort last.
 - `visible_rows` is `RowLayout`'s row order ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)).
@@ -801,7 +1062,9 @@ queue in `TableViewOutput` instead of applying it, for apps that route edits to 
   (`Local(Vec)` / model-driven paging) inside the view's row-order module, plus one more optional
   trait method. It would not need a redesign.
 
-**Selection.** `Selection { anchor: (RowUid, ColumnUid), cursor: (RowUid, ColumnUid), kind: Cells | Rows }`.
+**Selection.** `Selection { anchor: (RowUid, ColumnUid), cursor: (RowUid, ColumnUid), kind: Cells | Rows | Columns }`.
+`Columns` covers all visible rows of the anchor..cursor columns (header click, Ctrl+Space); copy,
+paste, clear and hide work on it.
 It is resolved to a visual rectangle each frame through uid→index maps that are built along with
 `visible_rows`/`visible_columns`. If the anchor or cursor disappears, the selection is clamped, or
 dropped if the table is empty. Shift-extend moves the cursor only (SEL-3). Column moves need no
@@ -852,6 +1115,9 @@ its editor has focus. Shortcuts run only when the table is active. Copy and past
 | `view.show(&mut t, &mut cfg, max_h, ui, id)` | `view.show(ui, &mut t, &mut VariantCellUi, &mut cfg)`; `id`/`max_h` move to `TableViewOptions` |
 | `TableBackend::poll` | Inherent method on the model, called by the app |
 | `backend.set_mapping_choices(..)` | `view.options_mut().column_mapping_choices` |
+| `TableFrontend::show_cell_view` that looks up the row per cell | `CellUi::show_row`: one lookup, then `cells.cell(col, \|ui\| ..)` (DESIGN-10) |
+| `cell_color` / `cell_corner` returning `Color32` | `CellMetadata::level` (`CellLevel`), or `cells.level(col, ..)` from `show_row` |
+| `BackendColumn::ty: String` | `ColumnInfo::ty: Option<VariantTy>` + `type_label` |
 
 ### DESIGN-9: Anchor-based layout without egui_extras
 
@@ -892,7 +1158,8 @@ out the table itself.
   with `animate_value_with_time` for auto-sizing changes only (not for user drags or the first
   measurement). A re-fit (double-click) keeps the old width until the new one is measured.
 - **Row set changes** take an incremental path when rows were only appended, so pressing `N` in a
-  10k-row table doesn't rebuild the uid index.
+  10k-row table doesn't rebuild the uid index. The view still collects every uid from the model
+  into a new `Vec` first, so the change itself is O(row count); DESIGN-11 removes that for live data.
 
 **Fits DESIGN-8:** `RowLayout::rows` is the view-owned row order. Sorting/filtering (step 2) only
 replaces how that `Vec<RowUid>` is built. Paged or unbounded models (the "known limit" in DESIGN-8)
@@ -902,6 +1169,248 @@ already only walks outwards from the anchor.
 **Not done yet:** horizontal reveal, Page Up/Down/Home/End, touch drag-to-scroll ([VIEW-8](#view-8)),
 persisting widths ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)), a sticky
 tool column during horizontal scroll.
+
+### DESIGN-10: Row builder for cell UI
+
+**Status:** proposed 2026-10-01; part of roadmap step 1 (it shapes the `CellUi` trait).
+
+**Problem.** A custom frontend gets one call per cell (`show_cell_view(coord)`). When the row lives
+in an in-memory database, a decoded frame or any struct that is costly to find, every cell repeats
+the lookup: 10 visible columns = 10 queries per row per frame. Caching in the frontend is fragile
+(invalidation, borrowing the model). egui_extras' `TableRow::col` avoids the repeat lookup, but it
+is positional, so it breaks with user column order and hidden columns.
+
+**Design.** The view calls `CellUi::show_row` once per visible row and hands it a `RowCells`
+builder. The implementation looks the row up once and fills cells **by `ColumnUid`, in any order**.
+The view places each cell in its column, whatever the visual order.
+
+```rust
+/// One per visible row, created by the view. Holds the child `Ui`s of the row's visible cells.
+pub struct RowCells<'a> { /* view-private */ }
+
+impl RowCells<'_> {
+    pub fn row(&self) -> RowUid;
+    /// Visible columns of this row in visual order. A cheap shared handle (`Rc<[ColumnUid]>`),
+    /// so `cell()` can be called while iterating.
+    pub fn columns(&self) -> VisibleColumns;
+    /// True if the column is shown now (not hidden, not scrolled out horizontally). Use it to skip
+    /// expensive work, e.g. decoding a signal for a column that isn't on screen.
+    pub fn wants(&self, col: ColumnUid) -> bool;
+    /// Fill one cell. Any order. A column that isn't shown is a no-op and `add` isn't called.
+    /// Filling the same column twice appends to the cell.
+    pub fn cell<R>(&mut self, col: ColumnUid, add: impl FnOnce(&mut Ui) -> R) -> Option<R>;
+    /// Per-cell presentation from the same lookup, overriding `model.metadata()` for this frame.
+    pub fn level(&mut self, col: ColumnUid, level: CellLevel);
+    pub fn tooltip(&mut self, col: ColumnUid, text: impl Into<String>);
+}
+
+// Default: per-cell, so simple implementations only write `show_cell`.
+fn show_row(&mut self, model: &mut M, row: RowUid, cells: &mut RowCells<'_>) {
+    for col in cells.columns().iter() {
+        cells.cell(*col, |ui| self.show_cell(model, CellCoord { row_uid: row, col_uid: *col }, ui));
+    }
+}
+```
+
+Example, a CAN trace:
+
+```rust
+impl CellUi<Trace> for TraceUi {
+    fn show_row(&mut self, trace: &mut Trace, row: RowUid, cells: &mut RowCells<'_>) {
+        let Some(frame) = trace.frame(row) else { return };   // the only lookup
+        cells.cell(COL_TIME, |ui| ui.label(format!("{:.6}", frame.t)));
+        cells.cell(COL_ID, |ui| ui.monospace(format!("{:03X}", frame.id)));
+        if frame.dlc > 8 { cells.level(COL_DLC, CellLevel::Error); }
+        if cells.wants(COL_SIGNALS) {
+            let signals = self.dbc.decode(frame);            // only when on screen
+            cells.cell(COL_SIGNALS, |ui| signals.ui(ui));
+        }
+    }
+}
+```
+
+- **Unfilled cells** are drawn empty: background, selection, metadata and click sense still work,
+  because the view creates the cell `Ui`s and their click sense before calling `show_row`. Row
+  height measurement and placeholder backgrounds are unchanged (DESIGN-9).
+- **Editing** doesn't need a special case: the editor is an overlay (DESIGN-12), the cell under it
+  is still rendered.
+- **Borrowing:** `frame` borrows the model immutably. A cell that needs `&mut M` (interactive
+  widget writing to the device) copies what it needs out of `frame` first, or records an action
+  that the implementation applies after the last `cell()` call.
+- **Model side:** the same repeat-lookup problem exists for copy, export and sort, which call
+  `get()` per cell. `TableModel::row_values(row, cols, out)` is the batched form (default: `get` per
+  column). Copy/export call it once per row. Sort keeps calling `get` (one column).
+- **Metadata:** the view calls `model.metadata()` per visible cell. A model with a costly lookup
+  returns `None` there and sets level/tooltip from `show_row` instead.
+- **Derive macro:** generates `row_values` that reads each struct once.
+- **Tests:** a UI test with a counting model checks one lookup per visible row per frame, and
+  that cells land in the right columns after a column move and with a hidden column.
+
+### DESIGN-11: Live data and models without `Variant` values
+
+**Status:** proposed 2026-10-01; contract parts in roadmap step 1, the rest in step 4. Use case U3.
+
+**Goal.** Bus traces (CAN, I2C, USART, SPI), register maps and decoded signals, backed by the app's
+own structs, updated many times a second. The model may have no `Variant` values at all. Features
+that need values degrade per column (see the availability table in
+[Goals](#goals-use-cases-and-targets)); everything that doesn't need them works fully.
+
+**Values are optional.**
+
+- `TableModel::get` defaults to `None`. `ColumnInfo::ty: None` marks a custom column: no sort, no
+  built-in editor, no paste or clear; header and context menu disable those entries instead of
+  hiding them, with a hover text saying why.
+- `CellUi::text(model, coord)` gives a string for copy, export and find when there's no value. The
+  derive macro and `VariantCellUi` don't need it.
+- Paste into custom columns is refused with a `TableEvent::Message`.
+
+**Cheap row-set updates.** A trace appends rows every frame and evicts the oldest from the front.
+Today that costs O(row count) per frame (DESIGN-9 note).
+
+```rust
+/// Monotonic counters. The view keeps the last-seen copy and derives what changed.
+pub struct RowsLog {
+    pub evicted_front: u64, // total rows ever removed from the front of the natural order
+    pub appended: u64,      // total rows ever appended at the end
+    pub other: u64,         // bumped by any other row-set change (insert, remove, clear, reload)
+}
+```
+
+- If `other` didn't change, the view removes `evicted_front - last.evicted_front` rows from the
+  front and asks for the last `appended - last.appended` uids (`rows()` is double-ended or a new
+  `rows_from_end(n)` method). Otherwise it rebuilds as today.
+- `RowLayout` keeps rows in a `VecDeque` with an index offset, so front removal is O(evicted). The
+  height cache drops evicted uids.
+- With a sort or filter active, appended rows are filtered and, under `SortPolicy::Live`, inserted
+  by binary search; evicted rows are removed from the sorted order (O(n), acceptable) or the order
+  is rebuilt.
+
+**Row uids.** `RowUid` becomes `u64`. Uids are never reused (DESIGN-8 principle 6); a 1 kHz bus
+overflows `u32` in about 50 days, an 8 kHz bus in about 6.
+
+**Scrolling.** Stick to bottom (`TableViewOptions::stick_to_bottom`) keeps the newest row in view
+while rows are evicted. When scrolled up, the anchor keeps its row until that row is evicted, then
+stays at index 0. Wheel scrolling never fights with stick to bottom: scrolling up turns it off until
+the end is reached again.
+
+**Repaint.** The view can't know that a bus thread received data. The app calls
+`ctx.request_repaint()` from the receiving side (document this in the live demo). The view only
+requests repaints for its own animations.
+
+**Change highlight.** `CellMetadata::changed: Option<u64>`: the `revision.cells` value at which the
+cell last changed. The view records when it first saw each revision and fades a `Changed` level
+over `TableStyle::change_flash`. The model stays time-free and egui-free.
+
+**Interactive cells.** `CellUi` gets `&mut M` (the DESIGN-8 principle 3 exception), so a cell can
+host a button or a drag value that writes a register. Such writes are not undoable and are not
+commands.
+
+**Pause (idea).** A view-side "freeze" keeps the current `visible_rows` snapshot while the model
+keeps growing, with a "1 234 new rows" badge to resume.
+
+**Demo.** `demos/live`: a simulated CAN bus thread (random ids, a few periodic frames with
+changing payloads), a trace table with stick to bottom and eviction at 100k rows, and a register
+map table with a writable column. It doubles as the performance benchmark scenario.
+
+### DESIGN-12: Editor overlay
+
+**Status:** proposed 2026-10-01; roadmap step 2 (with the view-owned edit buffer). Fixes EDIT-5.
+
+Draw the editor in a layer above the table (an `egui::Area` anchored to the cell rect), as Excel and
+Glide Data Grid do, instead of inside the cell's `Ui`.
+
+- The row height never changes when editing starts or ends, so heterogeneous rows don't jump and
+  fixed-height rows don't clip (EDIT-5).
+- The overlay is at least the cell's size and may grow right and down (long text, multi-line with
+  Alt+Enter), limited to the table's visible area.
+- Editors are frameless with the same padding as cell text, so text doesn't shift when editing
+  starts.
+- It follows the cell when scrolling. If the cell scrolls out of view, editing continues and the
+  next keystroke reveals the cell again.
+- A click outside the overlay commits (DESIGN-8 edit lifecycle). ComboBox popups opened from the
+  overlay are above it, so they work as today.
+- Tests find the editor as today (`TextInput` node); add one that checks row heights don't change
+  when editing starts.
+
+### DESIGN-13: Sort and filter: stability and UI
+
+**Status:** proposed 2026-10-01; policy in roadmap step 2, UI in step 5.
+
+**Stability policy.** Re-sorting or re-filtering immediately after a value changes makes rows jump
+away under the user: edit a cell in a sorted column and the row vanishes. AG Grid, Google Sheets
+and Airtable keep the row in place until the sort is applied again.
+
+```rust
+pub enum SortPolicy {
+    /// Default. Edits made in this view never move or hide rows; changes from outside the view
+    /// (revision.cells bumped without a view command) re-sort and re-filter.
+    OnExternalChange,
+    /// Re-sort/filter on every change, including this view's edits (live "top N" views, U3).
+    /// The scroll anchor stays at its index instead of following its row.
+    Live,
+    /// Only when the user or app re-applies. The header shows an "out of date" marker with a
+    /// refresh action.
+    OnDemand,
+}
+```
+
+- A row that no longer matches the filter after an edit stays visible, marked, until the filter is
+  re-applied.
+- The view tells its own edits from outside changes by remembering the `revision.cells` it expects
+  after applying its commands.
+
+**Sort UI.** A sort indicator at the right edge of each sortable header: click cycles ascending,
+descending, none; Shift+click adds a secondary key (shows 1, 2, ...). The header body selects the
+column (keyboard table). Context menu: Sort ascending / descending / Clear sort. Columns without
+values have the indicator disabled.
+
+**Find and filter share one bar.** Ctrl/Cmd+F opens a find bar above the table: matches are
+highlighted, Enter/Shift+Enter jump to the next/previous match and reveal it horizontally and
+vertically. A "Only matching rows" toggle turns the same text into a quick filter. Matching uses
+`get()` (canonical text) or `CellUi::text()`.
+
+**Per-column filters (later).** A filter popup in the header by column type: text contains, number
+range, enum set, empty/non-empty. Custom filter UI through `CellUi::filter_ui(col, ui, &mut
+ColumnFilter)` (README promises filtering "based on custom user ui").
+
+**Feedback.** The tool column shows the natural row number, not the visual index, so filtered-out
+rows show as gaps (as in Excel). The status bar shows "1 234 of 10 000 rows".
+
+### DESIGN-14: Look and feel
+
+**Status:** proposed 2026-10-01; roadmap step 7. Fixes VIEW-7, VIEW-11 and decides DOC-2.
+
+All colors come from the current `egui::Visuals` each frame, so theme switches apply immediately.
+`TableStyle` in `TableViewOptions` overrides the defaults:
+
+```rust
+pub struct TableStyle {
+    pub density: Density,          // Compact | Normal | Comfortable: padding + minimum row height
+    pub grid_lines: GridLines,     // None | Horizontal | All
+    pub striped: bool,             // today always on
+    pub show_column_types: bool,   // type label under the header name
+    pub truncate_text: bool,       // "…" + full text on hover (default true)
+    pub change_flash: f32,         // seconds, DESIGN-11
+}
+```
+
+- **Selection** (VIEW-7): range fill is `visuals.selection.bg_fill` at low alpha; the active cell
+  gets a 2 px `visuals.selection.stroke` border and no fill; the range gets a 1 px outline on all
+  four sides. Header cells of selected columns and row numbers of selected rows are highlighted.
+- **Semantic levels** (VIEW-11): `CellLevel::{Info, Warning, Error, Changed}` map to a low-alpha
+  background of `hyperlink_color`, `warn_fg_color`, `error_fg_color` and the selection color; text
+  keeps the normal color. Corner triangles use the full color. `Custom(Rgb)` picks black or white
+  text by contrast.
+- **Text overflow:** single-line cells truncate with "…" and show the full text on hover, only
+  when truncated. `WrapMode` in metadata stays as a per-cell override.
+- **Alignment** by column type: numbers right with tabular (fixed-width) digits, booleans
+  centered, text left. Per-column override in `TableViewConfig`.
+- **Skipped rows/columns** (DOC-2): one look for both, drawn by the view: weak text color and
+  strike-through. The diagonal cross goes away (it hides the content).
+- **Headers:** a distinct background, the name in strong text, the type label in small weak text
+  (optional), the sort indicator (DESIGN-13).
+- **Tests:** these are visual, so a few pixel snapshots (light and dark: a selection, the levels, a
+  truncated cell), masked to the area under test (see AGENTS.md).
 
 ---
 
@@ -922,7 +1431,20 @@ tool column during horizontal scroll.
   `../rvariant`, so a sibling checkout is required to build.
 - `.idea/` was committed. Untracked and ignored in step 0.
 - `demos/simple` has placeholder hyperlinks (`"Abc"`, `"Def"`, `github.com/...`).
-- README "Keyboard shortcuts" and "Features" lists should be derived from this file.
+- README "Keyboard shortcuts" and "Features" lists should be derived from this file (DOC-4).
+- **No CI.** There is no `.github/`. Planned: `cargo fmt --check`, clippy with `-D warnings`, tests,
+  a check that every `--ignored` UI test still fails, a `wasm32-unknown-unknown` build of the crate,
+  an MSRV build, and `just dry-publish`.
+- **`rvariant` path dependency** blocks CI and publishing, not only local builds. Use a git or
+  crates.io dependency before CI and before the 0.3.0 release.
+- **No benchmarks.** Add a headless benchmark (egui_kittest frames, release build) for the
+  [performance targets](#goals-use-cases-and-targets): scrolling 1M rows, live append + eviction,
+  1M-row sort, and a lookup counter for the row builder.
+- **Property tests** (proptest) for `RowLayout::{sync, normalize, reveal}`, selection clamping after
+  row/column set changes, and the paste parser: the underflow bugs (SEL-2, PASTE-3) are this kind.
+- **Pixel snapshots** for DESIGN-14 only, light and dark, small and masked.
+- **API docs** (DOC-5): `#![warn(missing_docs)]` after DESIGN-8; `cargo semver-checks` in CI after
+  0.3.0 is released.
 
 ---
 
@@ -934,23 +1456,44 @@ structurally, so patching them in the old code first would be wasted work.
 
 0. ✅ **Housekeeping** — done: dead modules deleted, never-called trait stubs removed, missing
    derives, `Cargo.toml` versions, `.idea/` untracked.
-1. 📋 **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)): `Revision`, `Capabilities`, `TableModel`, `CellUi` + `VariantCellUi`,
-   command queue. Port `VariantBackend` → `VariantTable`, the derive macro, the importer and the
-   three demos. Fixes FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4, PASTE-5.
-2. 🚧 **View state rewrite:** uid selection with anchor/cursor, view-owned edit buffer, focus-based
-   input, `TableViewOptions`, view-owned row order (sorting) built into `RowLayout`. Fixes
-   EDIT-1..3, EDIT-5..7, EDIT-9, SEL-1..5, VIEW-4, VIEW-5, DND-3. The anchor-based layout
+1. 📋 **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) with its
+   amendments): `Revision`, `Capabilities`, `TableModel` (optional `get`, typed `ColumnInfo::ty`,
+   `row_values`, `rows_log`, 64-bit `RowUid`), `CellUi` with the row builder
+   ([DESIGN-10](#design-10-row-builder-for-cell-ui)) and `text()`, `VariantCellUi`, command queue
+   whose `apply` returns inverse commands. Port `VariantBackend` → `VariantTable`, the derive macro,
+   the importer and the three demos. Fixes FLAGS-1..5, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4,
+   PASTE-5. Fold in DERIVE-1, DERIVE-5.
+2. 🚧 **View state rewrite:** uid selection with anchor/cursor (cells, rows, columns), view-owned
+   edit buffer with the editor overlay ([DESIGN-12](#design-12-editor-overlay)), focus-based input,
+   `TableViewOptions`, programmatic control (`set_selection`, `scroll_to`, ...), `TableEvent::Message`,
+   view-owned row order (sorting) built into `RowLayout` with `SortPolicy`
+   ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). Fixes EDIT-1..3, EDIT-5..7, EDIT-9,
+   SEL-1..5, VIEW-4, VIEW-5, VIEW-10, DND-3. The anchor-based layout
    ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)) landed ahead of this step.
-3. 📋 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`.
-4. 📋 **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), `write_csv(model, order, impl
-   Write) -> Result` (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of
-   steps 1–3; can land any time.
-5. 📋 **Features:** filtering, undo/redo (inverse commands), horizontal scroll-into-view, Page Up/Down,
-   touch drag-to-scroll (VIEW-8), XLSX import, more
-   editors (EDIT-8), confirmation for Clear (VIEW-6), selection colors (VIEW-7).
+3. 📋 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`;
+   hidden columns with a column chooser; frozen columns and a sticky tool column.
+4. 📋 **Live data** ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)): `rows_log`
+   fast path with a `VecDeque` row order, configurable stick to bottom that survives eviction,
+   per-column degradation for models without values, change highlight, `demos/live` (simulated CAN
+   trace + register map) as the benchmark scenario.
+5. 📋 **Spreadsheet essentials:** Delete/Backspace clear, cut, undo/redo UI, Ctrl+Arrow, Home/End,
+   Page Up/Down, Shift+Tab/Shift+Enter, Enter moves down, drag-select, horizontal reveal, cell
+   context menu, Ctrl+Enter, fill down/right, sort UI and find bar with quick filter (DESIGN-13),
+   rename/remove columns, insert/delete rows, numbers edited as text (EDIT-11), confirmation for
+   Clear (VIEW-6).
+6. 📋 **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), paste fill without a dialog,
+   copy raw values and copy with headers, `write_csv(model, order, impl Write) -> Result`
+   (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of steps 1–5; can
+   land any time.
+7. 📋 **Look and feel and accessibility** ([DESIGN-14](#design-14-look-and-feel)): `TableStyle`,
+   selection drawing (VIEW-7), semantic levels (VIEW-11), truncation, alignment, header highlight,
+   status bar; AccessKit grid semantics; touch drag-to-scroll (VIEW-8).
+8. 📋 **More features:** per-column filters, XLSX import, more editors (EDIT-8, dates, searchable
+   enum), multi-line text, translatable strings, pause for live views, hierarchical rows (idea).
 
-Small fixes that are independent of the redesign and can go in at any point: DERIVE-1, DERIVE-5
-(the macro is rewritten in step 1 anyway, so fold them in there), IMPORT-2, IMPORT-3.
+**Independent, any time — do first:** CI (needs the `rvariant` dependency fixed), then benchmarks
+and property tests (see [housekeeping](#unused-api-dead-code-and-housekeeping)). Small fixes:
+IMPORT-2, IMPORT-3. README fixes DOC-1..4 can land now; DOC-5 after step 1.
 
 ---
 
