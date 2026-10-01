@@ -1,7 +1,7 @@
 use crate::frontend::TableFrontend;
 use egui::{Button, Ui, UiKind};
-use tabular_core::backend::TableBackend;
 use tabular_core::RowUid;
+use tabular_core::backend::TableBackend;
 
 /// Shown when right-clicked on tool column row
 pub(super) fn tool_column_row_menu_ui<T: TableFrontend + TableBackend>(

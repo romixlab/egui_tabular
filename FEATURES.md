@@ -9,7 +9,8 @@ broken and what is planned. README.md is the public pitch; this file is the engi
 - File/line references were taken at commit `29fddab` and will drift; the function name is the
   durable anchor.
 
-Last full review: 2026-10-01 (baseline `29fddab`, egui 0.36, egui_extras 0.36.1).
+Last full review: 2026-10-01 (baseline `29fddab`, egui 0.36, egui_extras 0.36.1). The breaking
+redesign in [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) is in progress.
 
 ---
 
@@ -81,11 +82,11 @@ paste state.
 | Cell metadata: background color, corner triangle, multiple tooltips, wrap mode | `done` | `set_metadata(coord, meta, merge)`. |
 | Change/flag notification (`PersistentFlags`, `OneShotFlags`) | `buggy` | Error-prone; see [DESIGN-1](#design-1-flags-system), [FLAGS-*](#flags-and-change-notification). |
 | Read-only tables | `buggy` | `VariantBackend::set_read_only` has no effect ([BACKEND-1](#backend-1)); several buttons ignore read-only ([VIEW-4](#view-4)). |
-| Remote/lazy backends (`reload`, `poll`, `commit_all`, `commit_immediately`) | `stub` | Trait methods exist; the view never calls them. |
-| Column "used" vs "available" | `partial` | `used_columns()` exists, but `VariantBackend` doesn't override it and `use_column` is a no-op. |
+| Remote/lazy backends | `idea` | The never-called `reload`, `poll`, `commit_all`, `commit_immediately` stubs were removed in step 0. Server-side sorting has a planned hook ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"). |
+| Column "used" vs "available" | `partial` | `used_columns()` exists, but `VariantBackend` doesn't override it. `use_column` (a no-op) was removed in step 0. DESIGN-8 folds this into `ColumnInfo::is_used`. |
 | Undo / redo | `planned` | |
-| Sorting | `stub` | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing; `src/sort.rs` is not compiled. |
-| Filtering | `planned` | `src/filter.rs` is not compiled. |
+| Sorting | `stub` | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
+| Filtering | `planned` | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)). |
 
 ### `VariantBackend`
 
@@ -118,7 +119,7 @@ paste state.
 | Stick-to-bottom for live data | `partial` | `stick_to_bottom(true)` is hard-coded, not configurable. |
 | Visual state persistence (`TableViewConfig` is serde) | `partial` | Column order and widths are not persisted ([DND-5](#dnd-5)). |
 | Custom column header UI (`TableFrontend::custom_column_ui`) | `done` | |
-| Per-column render config (`TableFrontend::column_render_config`) | `stub` | Never called; `Column::auto()` is hard-coded. |
+| Per-column render config | `planned` | The never-called `TableFrontend::column_render_config` was removed in step 0. Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
 
 ### Editing
 
@@ -476,6 +477,8 @@ See [DESIGN-1](#design-1-flags-system) for the planned replacement.
 
 ### DESIGN-1: Flags system
 
+> Superseded by [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui). Kept for history.
+
 Replace `PersistentFlags` / `OneShotFlags` (FLAGS-1 – FLAGS-5) with:
 
 ```rust
@@ -515,6 +518,8 @@ pub trait TableBackend {
 
 ### DESIGN-2: Edit lifecycle
 
+> Superseded by [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui): the view owns the edit buffer, so the backend has no `begin_edit`/`end_edit`.
+
 Fixes EDIT-1 – EDIT-3, EDIT-6.
 
 - Single owner of "is editing": the view. Add a private `fn end_edit(&mut self, table, commit: bool)`
@@ -527,6 +532,8 @@ Fixes EDIT-1 – EDIT-3, EDIT-6.
 - `EditorResponse { response, commit_requested: bool }` lets discrete editors (Bool, Enum) commit on change.
 
 ### DESIGN-3: `TableBackend::col_uid` conflicts with view-owned column order
+
+> Superseded by [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), which removes both `col_uid` and `row_uid` from the trait.
 
 The view owns visual column order (`columns_ordered`, drag & drop). The backend's
 `col_uid(VisualColIdx)` is a second, conflicting ordering (root of EDIT-4). Remove it from the
@@ -541,10 +548,14 @@ trait; all visual→uid lookups go through view state.
 
 ### DESIGN-5: Focus-based input
 
+> Absorbed into [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) ("Focus and input").
+
 Track table focus instead of pointer hover (SEL-4). Only handle shortcuts and paste when the table is
 focused and no foreign widget wants keyboard input.
 
 ### DESIGN-6: Builder-style `show`
+
+> Superseded by [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui) (`TableViewOptions`).
 
 `show(table, config, max_height, ui, id)` is growing. Consider
 `TableView::new(id).max_height(..).show_tool_column(..).show(ui, table, config)`, with `id` passed
@@ -555,25 +566,290 @@ to `TableBuilder::id_salt` (VIEW-3).
 `rfd` (GTK/portal, file dialogs) is a hard dependency of a widget crate. Put import/export UI behind
 a feature (e.g. `file-dialogs`), and expose export as `fn write_csv(table, impl Write) -> Result`.
 
+### DESIGN-8: Core contract rework (`TableModel` + `CellUi`)
+
+**Status:** accepted 2026-10-01; implementation is roadmap steps 1–2. **Breaking.** It supersedes
+DESIGN-1, DESIGN-2, DESIGN-3 and DESIGN-6, and absorbs DESIGN-5. Every known downstream user will
+be ported, so there are no compatibility shims.
+
+#### Principles
+
+1. **The model is data only.** `TableModel` lives in `tabular_core` and has no egui dependency.
+2. **The view owns all presentation state:** column order and widths, row order (sort/filter),
+   selection, the edit buffer, focus, and the paste dialog. Nothing the user sees is ordered by the
+   model.
+3. **The view never mutates the model while rendering.** Every view-originated change is pushed to a
+   command queue, and the queue is applied once per frame, after the body has rendered. This fixes
+   VIEW-1 by construction and is the hook for undo/redo.
+4. **Change detection uses revision counters that are never consumed.** Any number of views and app
+   code can each compare against their own last-seen value.
+
+#### Core types (`tabular_core`)
+
+```rust
+/// Bumped by the model on change. Compare with your last-seen copy; never reset.
+#[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
+pub struct Revision {
+    pub columns: u64, // column set, names, types, ColumnInfo changes
+    pub rows: u64,    // row set (insert, remove, clear, reload)
+    pub cells: u64,   // any cell value
+    pub skips: u64,   // row/column skip state; separate so preprocessing that skips doesn't loop
+}
+
+/// What the model supports. The view only issues commands that are allowed here.
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Capabilities {
+    pub edit_cells: bool,
+    pub create_rows: bool,
+    pub remove_rows: bool,
+    pub create_columns: bool,
+    pub clear: bool,
+    pub skip_rows: bool,
+    pub skip_columns: bool,
+}
+
+/// Replaces BackendColumn (renamed; `is_skipped` is the only source of truth for column skip).
+pub struct ColumnInfo {
+    pub name: String,
+    pub synonyms: Vec<String>,
+    pub ty: String,
+    pub is_sortable: bool,
+    pub is_required: bool,
+    pub is_used: bool,
+    pub is_skipped: bool,
+}
+
+pub enum ModelError { Unsupported, TypeMismatch { expected: VariantTy }, Other(String) }
+
+pub trait TableModel {
+    fn revision(&self) -> Revision;
+    fn capabilities(&self) -> Capabilities;
+
+    /// Natural column order. The view starts from this and then applies the user's order.
+    fn columns(&self) -> impl Iterator<Item = ColumnUid>;
+    fn column(&self, col: ColumnUid) -> Option<&ColumnInfo>;
+    /// Natural row order (insertion / file order). Never sorted or filtered by the view's state.
+    fn rows(&self) -> impl Iterator<Item = RowUid>;
+    fn row_count(&self) -> usize { self.rows().count() } // override when O(1)
+
+    /// `Cow` so that computed models (derive macro) can return owned values and stored
+    /// models can return references (sorting 1M rows must not clone every string).
+    fn get(&self, coord: CellCoord) -> Option<Cow<'_, Variant>>;
+    fn metadata(&self, coord: CellCoord) -> Option<Cow<'_, CellMetadata>> { None }
+    fn is_row_skipped(&self, row: RowUid) -> bool { false }
+
+    // Mutations. Defaults return Err(Unsupported); the view checks capabilities() first.
+    fn set(&mut self, coord: CellCoord, value: Variant) -> Result<(), ModelError>;
+    fn create_row(&mut self, values: Vec<(ColumnUid, Variant)>) -> Result<RowUid, ModelError>;
+    fn remove_rows(&mut self, rows: &[RowUid]) -> Result<(), ModelError>;
+    fn create_column(&mut self) -> Result<ColumnUid, ModelError>;
+    fn clear(&mut self) -> Result<(), ModelError>;
+    fn skip_rows(&mut self, rows: &[RowUid], skipped: bool) -> Result<(), ModelError>;
+    fn skip_column(&mut self, col: ColumnUid, skipped: bool) -> Result<(), ModelError>;
+
+    /// Optional delegated ordering, see "Row order". None = the view sorts locally.
+    fn sorted_rows(&self, keys: &[SortKey]) -> Option<Vec<RowUid>> { None }
+}
+```
+
+Removed from the contract: `PersistentFlags`, `OneShotFlags` and the five flag methods,
+`col_uid(VisualColIdx)`, `row_uid(VisualRowIdx)`, `VisualRowIdx`/`VisualColIdx` (they become
+view-internal), `available_columns`/`used_columns`, `is_clearable`, `is_col_skipped`,
+`un_skip_all_*` (use the slice forms), `commit_cell_edit`, `column_mapping_choices` (moves to view
+options), and `set_metadata` (becomes inherent on `VariantTable`; the trait only reads metadata).
+`un_skipped_rows()` stays as a provided method.
+
+#### Cell UI (`egui_tabular`)
+
+```rust
+pub trait CellUi<M: TableModel> {
+    /// View mode. `&mut M` because cells may host live interactive widgets
+    /// (e.g. hardware state polled through the model).
+    fn show_cell(&mut self, model: &mut M, coord: CellCoord, ui: &mut Ui);
+    /// Initial edit value; None = this cell is not editable.
+    fn begin_edit(&mut self, model: &M, coord: CellCoord) -> Option<Variant> {
+        model.get(coord).map(Cow::into_owned)
+    }
+    /// Edits the view-owned buffer. Never touches the model.
+    fn show_editor(&mut self, model: &M, coord: CellCoord, value: &mut Variant, ui: &mut Ui)
+        -> EditorResponse;
+    /// Extra header content (replaces TableFrontend::custom_column_ui).
+    fn header_ui(&mut self, model: &mut M, col: ColumnUid, ui: &mut Ui) {}
+}
+
+pub struct EditorResponse { pub response: Response, pub commit: bool } // commit: discrete editors
+
+/// Default implementation for any model: renders and edits every Variant type.
+pub struct VariantCellUi;
+impl<M: TableModel> CellUi<M> for VariantCellUi { /* ... */ }
+```
+
+- The model and the cell UI are **separate values**, so `show(&mut model, &mut cell_ui)` borrows
+  cleanly. A model with custom rendering uses a small companion type:
+  `struct BanksUi; impl CellUi<Banks> for BanksUi`.
+- The **view** paints background color, corner, tooltips (from `model.metadata()`) and the skipped
+  strike-through. `cell_color`/`cell_tooltips`/`cell_corner` leave the frontend, so custom cell UIs
+  get them for free.
+- The view requests focus on the editor's first frame, and handles Enter/Escape/Tab/lost focus
+  uniformly, so `CellUi` implementors don't reimplement the lifecycle.
+
+#### View
+
+```rust
+pub struct TableViewOptions {
+    pub id_salt: Id,              // passed to TableBuilder::id_salt (VIEW-3)
+    pub max_height: Option<f32>,
+    pub tool_column: bool,
+    pub read_only: bool,          // view-level, on top of model capabilities
+    pub stick_to_bottom: bool,
+    pub column_mapping_choices: Vec<String>,
+}
+
+impl TableView {
+    pub fn new(options: TableViewOptions) -> Self;
+    pub fn options_mut(&mut self) -> &mut TableViewOptions;
+    pub fn show<M: TableModel>(
+        &mut self, ui: &mut Ui, model: &mut M, cell_ui: &mut impl CellUi<M>,
+        config: &mut TableViewConfig,
+    ) -> TableViewOutput;
+    pub fn selection(&self) -> Option<&Selection>;
+    pub fn visible_rows(&self) -> &[RowUid];
+    pub fn visible_columns(&self) -> &[ColumnUid];
+}
+
+/// User preferences; serde, owned and persisted by the app.
+pub struct TableViewConfig {
+    pub minimum_row_height: Option<f32>, // None = ui.spacing().interact_size.y (EDIT-5)
+    pub heterogeneous_row_heights: bool,
+    pub column_order: Vec<ColumnUid>,             // DESIGN-4
+    pub column_widths: HashMap<ColumnUid, f32>,   // DESIGN-4
+    pub hidden_columns: HashSet<ColumnUid>,
+    pub sort: Vec<SortKey>,
+    pub column_mapped_to: HashMap<ColumnUid, String>,
+}
+
+pub struct TableViewOutput { pub response: Response, pub events: Vec<TableEvent> }
+
+pub enum TableEvent {
+    SelectionChanged { rows: Vec<RowUid> },
+    CellCommitted(CellCoord),
+    EditCancelled(CellCoord),
+    CommandFailed { command: TableCommand, error: ModelError },
+    ColumnMappingChanged(ColumnUid),
+    ColumnsReordered,
+    SortChanged,
+    RowsCreated(Vec<RowUid>),
+}
+```
+
+**Command queue.** Commands are view-level intents, applied in one place after rendering:
+
+```rust
+pub enum TableCommand {
+    Set { coord: CellCoord, value: Variant },
+    Paste { anchor: (RowUid, ColumnUid), block: Vec<Vec<String>>, mode: PasteMode },
+    CreateRows { count: usize },
+    CreateColumn,
+    RemoveRows(Vec<RowUid>),
+    Clear,
+    SkipRows { rows: Vec<RowUid>, skipped: bool },
+    SkipColumn { col: ColumnUid, skipped: bool },
+}
+```
+
+`Paste` is one compound command because it may create columns and then write into them. Its apply
+step calls `create_column`, `create_row` and `set` in sequence. Possible later extensions (not in
+step 1): `apply` returns the inverse operations (undo), and a `defer_commands` option returns the
+queue in `TableViewOutput` instead of applying it, for apps that route edits to a server.
+
+**Row order.**
+
+- The view holds `visible_rows: Vec<RowUid>`. It is rebuilt when `revision.rows` changes, when
+  `config.sort` or the filter changes, or when `revision.cells` changes while a sort or filter is
+  active. The pipeline is: `model.rows()` → filter → sort (stable). Sorting uses `model.get()` and a
+  crate-local Variant comparator, because `rvariant::Variant` doesn't implement `Ord`. Numbers
+  compare by value, strings case-insensitively, and empty values sort last.
+- Row heights are rebuilt together with `visible_rows`, and resynced whenever
+  `row_heights.len() != visible_rows.len()` (VIEW-1, VIEW-2).
+- **Delegated sorting hook:** if `model.sorted_rows(&config.sort)` returns `Some`, the view uses
+  that order instead of sorting locally (e.g. a model backed by SQL runs `ORDER BY`). This is one
+  optional trait method. The view's structure doesn't change, because it still holds a `Vec<RowUid>`.
+- **Known limit:** the view materializes all row uids (4 bytes per row; 1M rows ≈ 4 MB, local sort
+  in the order of 100 ms). Tables that can't enumerate their uids (unbounded or paginated remote
+  data) are out of scope. Supporting them later would turn `visible_rows` into an enum
+  (`Local(Vec)` / model-driven paging) inside the view's row-order module, plus one more optional
+  trait method. It would not need a redesign.
+
+**Selection.** `Selection { anchor: (RowUid, ColumnUid), cursor: (RowUid, ColumnUid), kind: Cells | Rows }`.
+It is resolved to a visual rectangle each frame through uid→index maps that are built along with
+`visible_rows`/`visible_columns`. If the anchor or cursor disappears, the selection is clamped, or
+dropped if the table is empty. Shift-extend moves the cursor only (SEL-3). Column moves need no
+selection fix-up (DND-3). Row selection covers exactly the visible columns (SEL-1).
+
+**Edit lifecycle.** The view owns the edit buffer:
+`editing: Option<EditState { coord, value: Variant, first_frame: bool, error: Option<ModelError> }>`.
+
+- **Enter edit mode:** click on the selected cell, double-click, Enter, F2, or typing a character
+  (a `Str` editor is seeded with that character). The `E` shortcut is dropped in favor of F2. Entry
+  calls `cell_ui.begin_edit`.
+- **Exit:** every exit goes through one `finish_edit(Commit | Cancel)`.
+  - **Commit:** Enter, Tab (and continue on the next visible cell), click elsewhere, focus loss, or
+    `EditorResponse::commit`. Pushes `TableCommand::Set`. If `set` fails, the editor reopens with
+    the error shown as a tooltip.
+  - **Cancel:** Escape, or the edited row/column disappearing.
+
+  Because the buffer lives in the view, where the pointer is doesn't matter (EDIT-1, EDIT-2, EDIT-3,
+  EDIT-6).
+
+**Focus and input** (was DESIGN-5). The table has a focusable response and is *active* while it or
+its editor has focus. Shortcuts run only when the table is active. Copy and paste use
+`Event::Copy`/`Event::Paste` (SEL-4, SEL-5).
+
+#### Implementations after the change
+
+- **`VariantBackend` → `VariantTable`:** implements `TableModel` only and is rendered with
+  `VariantCellUi`. `insert_column` takes a `ColumnDef` struct instead of 7 positional arguments.
+  `set` coerces the value to the column type (PASTE-5). Conversion errors surface through
+  `metadata()`. `set_read_only` sets the capabilities (BACKEND-1).
+- **`#[derive(TabularRow)]`:** generates `<vis> struct <Row>Table` (DERIVE-2) implementing
+  `TableModel` with `get()`. A field becomes `Variant` via `From` where rvariant has an impl,
+  otherwise the `#[format]`/`Debug` string. All capabilities are false. No egui in the generated code
+  (DERIVE-3), and it is rendered with `VariantCellUi`. Copy/export work (DERIVE-4).
+- **`TabularImporter`:** `show` returns `TableViewOutput`. Apps detect data changes with
+  `importer.table().revision()`.
+
+#### Migration (old → new)
+
+| Old | New |
+|-----|-----|
+| `impl TableBackend + TableFrontend for T` | `impl TableModel for T` + `impl CellUi<T> for TUi` (or use `VariantCellUi`) |
+| `one_shot_flags().rows_selected` | `TableEvent::SelectionChanged` in `show()` output, or `view.selection()` |
+| `one_shot_flags().any_changed()` | Compare `model.revision()` with a stored copy |
+| `one_shot_flags_internal_mut().row_set_updated = true` | Bump `revision.rows` |
+| `persistent_flags().is_read_only` | `capabilities()` / `TableViewOptions::read_only` |
+| `row_uid(VisualRowIdx(i))` for iteration | `model.rows()` (natural order) or `view.visible_rows()` (on-screen order) |
+| `view.show(&mut t, &mut cfg, max_h, ui, id)` | `view.show(ui, &mut t, &mut VariantCellUi, &mut cfg)`; `id`/`max_h` move to `TableViewOptions` |
+| `TableBackend::poll` | Inherent method on the model, called by the app |
+| `backend.set_mapping_choices(..)` | `view.options_mut().column_mapping_choices` |
+
 ---
 
 ## Unused API, dead code and housekeeping
 
-- **Never called by the view:**
-  - `TableFrontend`: `column_render_config`, `on_cell_view_response`.
-  - `TableBackend`: `on_highlight_cell`, `commit_all`, `commit_immediately`, `reload`, `poll`, `use_column`.
-- **Not compiled (not in any `mod` tree):** `src/table_view/interface.rs`, `src/table_view/widgets.rs`,
-  `src/table_view/util.rs`, `src/cell.rs`, `src/filter.rs`, `src/sort.rs`. They reference fields that
-  no longer exist. Delete or port.
-- **Missing derives:** `VisualRowIdx`, `VisualColIdx`, `CellCoord` lack `Debug`. `RowUid` lacks
-  `Ord`/serde. `TableView` lacks `Default` (clippy `new_without_default`).
-- `CellMetadata` builder methods restate every field; use `Self { color: Some(rgb), ..self }`.
-- **`Cargo.toml`:**
-  - `log = "0"` is too loose.
-  - Workspace declares `tabular_core`/`tabular_derive` at `0.1`, while the root crate depends on
-    `0.2`; the workspace entries are unused.
-  - `rvariant` is a path dependency to `../rvariant` (sibling checkout required to build).
-- `.idea/` is committed.
+- **Never called by the view:** `TableBackend::{reload, poll, commit_all, commit_immediately,
+  use_column, on_highlight_cell}` and `TableFrontend::{column_render_config, on_cell_view_response}`
+  were removed in step 0. Implementors that overrode `poll` keep
+  it as an inherent method.
+- **Dead modules:** `src/cell.rs`, `src/filter.rs`, `src/sort.rs`, `src/table_view/{interface,
+  widgets,util}.rs` were deleted in step 0.
+- **Missing derives:** `Debug` on `VisualRowIdx`, `VisualColIdx`, `CellCoord`; `Ord`/serde on
+  `RowUid`; `Default` for `TableView`. Added in step 0.
+- `CellMetadata` builder methods restated every field. Simplified in step 0.
+- **`Cargo.toml`:** `log = "0"` was too loose, and the workspace declared
+  `tabular_core`/`tabular_derive` at `0.1` while the root crate used `0.2`. Both fixed in step 0;
+  the root crate now uses the workspace entries. `rvariant` is still a path dependency to
+  `../rvariant`, so a sibling checkout is required to build.
+- `.idea/` was committed. Untracked and ignored in step 0.
 - `demos/simple` has placeholder hyperlinks (`"Abc"`, `"Def"`, `github.com/...`).
 - README "Keyboard shortcuts" and "Features" lists should be derived from this file.
 
@@ -581,17 +857,27 @@ a feature (e.g. `file-dialogs`), and expose export as `fn write_csv(table, impl 
 
 ## Roadmap
 
-Suggested order; update as items land.
+Suggested order; update as items land. Since breaking changes are allowed (all users will be
+ported), the API redesign comes **first**: most crash and data-loss bugs are fixed by it
+structurally, so patching them in the old code first would be wasted work.
 
-1. **Crashes and silent data loss (small, local fixes):** VIEW-1, SEL-2, PASTE-3, EXPORT-1, EDIT-4,
-   DND-3, IMPORT-2, IMPORT-3, DERIVE-1.
-2. **Edit lifecycle** (DESIGN-2): EDIT-1, EDIT-2, EDIT-3, EDIT-5, EDIT-6, EDIT-7.
-3. **Column DnD** (DESIGN-4): DND-1, DND-2, DND-4, DND-5, DND-6.
-4. **Input and paste:** SEL-4/DESIGN-5, PASTE-1, PASTE-2, PASTE-4, PASTE-5, SEL-1, SEL-3, SEL-5,
-   IMPORT-1.
-5. **Breaking API rework:** DESIGN-1 (flags → `Revision` + `TableViewOutput`), DESIGN-3, unused API
-   removal, DESIGN-6, DESIGN-7, DERIVE-2 – DERIVE-5.
-6. **Features:** sorting, filtering, undo/redo, scroll-into-view, XLSX import, more editors.
+0. **Housekeeping** — `done`: dead modules deleted, never-called trait stubs removed, missing
+   derives, `Cargo.toml` versions, `.idea/` untracked.
+1. **Core contract** ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)): `Revision`, `Capabilities`, `TableModel`, `CellUi` + `VariantCellUi`,
+   command queue. Port `VariantBackend` → `VariantTable`, the derive macro, the importer and the
+   three demos. Fixes FLAGS-1..5, VIEW-1, EDIT-4, BACKEND-1, BACKEND-2, DERIVE-2..4, PASTE-5.
+2. **View state rewrite:** uid selection with anchor/cursor, view-owned edit buffer, focus-based
+   input, `TableViewOptions`, view-owned row order (sorting). Fixes EDIT-1..3, EDIT-5..7, EDIT-9,
+   SEL-1..5, VIEW-2..5, DND-3.
+3. **Column order and widths** (DESIGN-4): DND-1, DND-2, DND-4, DND-5, DND-6.
+4. **Paste/export/import:** paste via the `csv` crate (PASTE-1..4), `write_csv(model, order, impl
+   Write) -> Result` (EXPORT-1..4), `rfd` behind a feature (DESIGN-7), IMPORT-1..5. Independent of
+   steps 1–3; can land any time.
+5. **Features:** filtering, undo/redo (inverse commands), scroll-into-view, XLSX import, more
+   editors (EDIT-8), confirmation for Clear (VIEW-6), selection colors (VIEW-7).
+
+Small fixes that are independent of the redesign and can go in at any point: DERIVE-1, DERIVE-5
+(the macro is rewritten in step 1 anyway, so fold them in there), IMPORT-2, IMPORT-3.
 
 ---
 

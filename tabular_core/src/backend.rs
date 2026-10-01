@@ -3,10 +3,10 @@ use rvariant::Variant;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct VisualRowIdx(pub usize);
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct VisualColIdx(pub usize);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,24 +22,12 @@ pub struct BackendColumn {
 }
 
 pub trait TableBackend {
-    /// Drop all data from memory and start loading from scratch. No-op if memory based backend.
-    fn reload(&mut self) {}
-    // Fetch all remote data without waiting fot it to be queried
-    // fn fetch_all(&mut self);
-    // fn fetch(&mut self, col_uid_set: impl Iterator<Item = u32>);
     /// Clear all row data from memory, but leave the columns' info.
     /// If not supported, do nothing and return false from is_clearable().
     fn clear(&mut self);
 
     fn is_clearable(&self) -> bool {
         true
-    }
-
-    /// Send to server or write to disk all the changes made while commit_immediately was false.
-    fn commit_all(&mut self) {}
-    /// Whether to immediately send or write to disk all the changes as they are being made.
-    fn commit_immediately(&mut self, enabled: bool) {
-        let _ = enabled;
     }
 
     /// Returns flags that do not change from frame to frame.
@@ -64,11 +52,6 @@ pub trait TableBackend {
     /// Recommended implementation: `&mut self.one_shot_flags`
     fn one_shot_flags_internal_mut(&mut self) -> &mut OneShotFlags;
 
-    /// Process requests, talk to backend, watch for file changes, etc.
-    /// Must be called periodically, for example each frame.
-    /// Should not block or take too long on each run.
-    fn poll(&mut self) {}
-
     /// Returns all available columns.
     fn available_columns(&self) -> impl Iterator<Item = ColumnUid>;
     /// Returns actually used columns, unused data is e.g. not sent over the network.
@@ -77,13 +60,6 @@ pub trait TableBackend {
     }
     fn column_info(&self, col_uid: ColumnUid) -> Option<&BackendColumn>;
     fn col_uid(&self, col_idx: VisualColIdx) -> Option<ColumnUid>;
-
-    /// Choose whether to use a certain column or not.
-    fn use_column(&mut self, col_uid: ColumnUid, is_used: bool) {
-        let (_, _) = (col_uid, is_used);
-    }
-    // Choose whether to use certain columns or not.
-    // fn use_columns(&mut self, cols: impl Iterator<Item = (usize, bool)>);
 
     /// Returns row count, with filters applied.
     fn row_count(&self) -> usize;
@@ -141,11 +117,6 @@ pub trait TableBackend {
     /// Create new column if possible
     fn create_column(&mut self) -> Option<ColumnUid> {
         None
-    }
-
-    /// Called when a cell is selected/highlighted.
-    fn on_highlight_cell(&mut self, coord: CellCoord) {
-        let _ = coord;
     }
 
     // Removes all row filters
@@ -346,80 +317,45 @@ impl BackendColumn {
 
 impl CellMetadata {
     pub fn new() -> Self {
-        Self {
-            color: None,
-            corner: None,
-            tooltips: vec![],
-            wrap_mode: None,
-        }
+        Self::default()
     }
 
     pub fn color(self, rgb: Rgb) -> Self {
         Self {
             color: Some(rgb),
-            tooltips: self.tooltips,
-            corner: self.corner,
-            wrap_mode: self.wrap_mode,
+            ..self
         }
     }
 
     pub fn color_opt(self, color: Option<Rgb>) -> Self {
-        Self {
-            color,
-            tooltips: self.tooltips,
-            corner: self.corner,
-            wrap_mode: self.wrap_mode,
-        }
+        Self { color, ..self }
     }
 
     pub fn corner(self, rgb: Rgb) -> Self {
         Self {
-            color: self.color,
-            tooltips: self.tooltips,
             corner: Some(rgb),
-            wrap_mode: self.wrap_mode,
+            ..self
         }
     }
 
     pub fn corner_opt(self, corner: Option<Rgb>) -> Self {
-        Self {
-            color: self.color,
-            tooltips: self.tooltips,
-            corner,
-            wrap_mode: self.wrap_mode,
-        }
+        Self { corner, ..self }
     }
 
-    pub fn tooltip(self, tooltip: Arc<String>) -> Self {
-        let mut tooltips = self.tooltips;
-        tooltips.push(tooltip);
-        Self {
-            color: self.color,
-            tooltips,
-            corner: self.corner,
-            wrap_mode: self.wrap_mode,
-        }
+    pub fn tooltip(mut self, tooltip: Arc<String>) -> Self {
+        self.tooltips.push(tooltip);
+        self
     }
 
-    pub fn tooltip_opt(self, tooltip: Option<Arc<String>>) -> Self {
-        let mut tooltips = self.tooltips;
-        if let Some(tooltip) = tooltip {
-            tooltips.push(tooltip);
-        }
-        Self {
-            color: self.color,
-            tooltips,
-            corner: self.corner,
-            wrap_mode: self.wrap_mode,
-        }
+    pub fn tooltip_opt(mut self, tooltip: Option<Arc<String>>) -> Self {
+        self.tooltips.extend(tooltip);
+        self
     }
 
     pub fn wrap_mode(self, wrap_mode: WrapMode) -> Self {
         Self {
-            color: self.color,
-            tooltips: self.tooltips,
-            corner: self.corner,
             wrap_mode: Some(wrap_mode),
+            ..self
         }
     }
 
