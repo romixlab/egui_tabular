@@ -1422,32 +1422,32 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
 | EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
-| FLAGS-1 | `STEP1` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |
-| FLAGS-2 | `STEP1` | View events (`rows_selected`, `column_mapping_changed`) moved to `TableViewOutput::events`. (DESIGN-8) |
-| FLAGS-3 | `STEP1` | Flag system removed. (DESIGN-8) |
-| FLAGS-4 | `STEP1` | One source each: `capabilities()`, `ColumnInfo::is_skipped`. (DESIGN-8) |
-| FLAGS-5 | `STEP1` | No flag methods; a model implements `revision()` and `capabilities()`. (DESIGN-8) |
-| EDIT-1 | `STEP1` | A row number click commits the edit; the edit buffer is the view's. Test: `editing::row_number_click_commits_edit`. |
-| EDIT-2 | `STEP1` | No backend edit buffer to go stale; the view drops its buffer when the cell is no longer edited. Test: `editing::escape_away_from_table_cancels_edit`. |
-| EDIT-4 | `STEP1` | `E` and Tab take the cell from the view's row and column order; `col_uid`/`row_uid` are gone from the model. Tests: `editing::{e,tab}_edits_visual_column_after_reorder`. (DESIGN-8) |
-| EDIT-7 | `STEP1` | Bool values are drawn as a check mark that doesn't take the click. Test: `model::bool_cell_click_selects_the_cell`. |
-| SEL-1 | `STEP1` | Row selections end at the last column. Test: `selection::row_selection_copies_exactly_the_row`. |
-| PASTE-3 | `STEP1` | Column count to create uses `saturating_sub`. |
-| PASTE-5 | `STEP1` | `VariantTable` converts values to the column type; failures are kept and marked. Test: `commands::tests::paste_converts_to_column_type`. |
-| VIEW-4 | `STEP1` | "Add row", "Create column", "Append row", "Clear", "Skip" follow the model's capabilities and `TableViewOptions::read_only`. Test: `model::read_only_table_offers_no_add_row_or_create_column`. |
-| VIEW-10 | `STEP1` | `TableEvent::Message` instead of a log line. Test: `model::paste_without_selection_tells_the_user`. |
-| VIEW-11 | `STEP1` | `CellLevel` instead of `Rgb`, mapped to the theme's colors. |
-| BACKEND-1 | `STEP1` | `VariantTable::set_read_only` sets the capabilities. Test: `editing::read_only_table_does_not_edit`. |
-| BACKEND-2 | `STEP1` | `col_uid` removed from the model. (DESIGN-8) |
-| EXPORT-2 | `STEP1` | Export uses the view's column order. |
-| DERIVE-1 | `STEP1` | The `#[format]` string literal is used as is; anything else is a compile error. Test: `tests` package. |
-| DERIVE-2 | `STEP1` | `<Row>Table` has the row struct's visibility. |
-| DERIVE-3 | `STEP1` | The generated code has no egui. |
-| DERIVE-4 | `STEP1` | `get()` and `row_values()` are generated; copy and export work. |
-| DERIVE-5 | `STEP1` | Tuple fields are accessed as `row.0`. |
-| DOC-1 | `STEP1` | README links `TableModel` and `CellUi`. |
-| DOC-2 | `STEP1` | README says skipped cells are crossed out. |
-| DOC-3 | `STEP1` | README says the view keeps one id per row. |
+| FLAGS-1 | `80bd7d2` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |
+| FLAGS-2 | `80bd7d2` | View events (`rows_selected`, `column_mapping_changed`) moved to `TableViewOutput::events`. (DESIGN-8) |
+| FLAGS-3 | `80bd7d2` | Flag system removed. (DESIGN-8) |
+| FLAGS-4 | `80bd7d2` | One source each: `capabilities()`, `ColumnInfo::is_skipped`. (DESIGN-8) |
+| FLAGS-5 | `80bd7d2` | No flag methods; a model implements `revision()` and `capabilities()`. (DESIGN-8) |
+| EDIT-1 | `80bd7d2` | A row number click commits the edit; the edit buffer is the view's. Test: `editing::row_number_click_commits_edit`. |
+| EDIT-2 | `80bd7d2` | No backend edit buffer to go stale; the view drops its buffer when the cell is no longer edited. Test: `editing::escape_away_from_table_cancels_edit`. |
+| EDIT-4 | `80bd7d2` | `E` and Tab take the cell from the view's row and column order; `col_uid`/`row_uid` are gone from the model. Tests: `editing::{e,tab}_edits_visual_column_after_reorder`. (DESIGN-8) |
+| EDIT-7 | `80bd7d2` | Bool values are drawn as a check mark that doesn't take the click. Test: `model::bool_cell_click_selects_the_cell`. |
+| SEL-1 | `80bd7d2` | Row selections end at the last column. Test: `selection::row_selection_copies_exactly_the_row`. |
+| PASTE-3 | `80bd7d2` | Column count to create uses `saturating_sub`. |
+| PASTE-5 | `80bd7d2` | `VariantTable` converts values to the column type; failures are kept and marked. Test: `commands::tests::paste_converts_to_column_type`. |
+| VIEW-4 | `80bd7d2` | "Add row", "Create column", "Append row", "Clear", "Skip" follow the model's capabilities and `TableViewOptions::read_only`. Test: `model::read_only_table_offers_no_add_row_or_create_column`. |
+| VIEW-10 | `80bd7d2` | `TableEvent::Message` instead of a log line. Test: `model::paste_without_selection_tells_the_user`. |
+| VIEW-11 | `80bd7d2` | `CellLevel` instead of `Rgb`, mapped to the theme's colors. |
+| BACKEND-1 | `80bd7d2` | `VariantTable::set_read_only` sets the capabilities. Test: `editing::read_only_table_does_not_edit`. |
+| BACKEND-2 | `80bd7d2` | `col_uid` removed from the model. (DESIGN-8) |
+| EXPORT-2 | `80bd7d2` | Export uses the view's column order. |
+| DERIVE-1 | `80bd7d2` | The `#[format]` string literal is used as is; anything else is a compile error. Test: `tests` package. |
+| DERIVE-2 | `80bd7d2` | `<Row>Table` has the row struct's visibility. |
+| DERIVE-3 | `80bd7d2` | The generated code has no egui. |
+| DERIVE-4 | `80bd7d2` | `get()` and `row_values()` are generated; copy and export work. |
+| DERIVE-5 | `80bd7d2` | Tuple fields are accessed as `row.0`. |
+| DOC-1 | `80bd7d2` | README links `TableModel` and `CellUi`. |
+| DOC-2 | `80bd7d2` | README says skipped cells are crossed out. |
+| DOC-3 | `80bd7d2` | README says the view keeps one id per row. |
 
 ---
 
