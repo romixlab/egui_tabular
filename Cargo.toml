@@ -20,7 +20,7 @@ authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 eframe = { version = "0.36", features = ["serde", "persistence"] }
 egui = { version = "0.36" }
 egui_tabular = { path = ".", version = "0.2" }
-rvariant = { path = "../rvariant", features = ["serde"], version = "0.2" }
+rvariant = { path = "../rvariant", features = ["serde"], version = "0.3" }
 strum = { version = "0.28", features = ["derive"] }
 tabular_core = { version = "0.1", path = "./tabular_core" }
 tabular_derive = { version = "0.1", path = "./tabular_derive" }
