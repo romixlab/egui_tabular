@@ -21,6 +21,9 @@ such as `EDIT-4` or `DND-3`), the planned design rework, and the roadmap.
   - Added or changed a feature → update its inventory row and status; update the keyboard/mouse table if input behavior changed.
   - Found a bug you aren't fixing → add it with the next free ID for its prefix.
   - Never renumber or reuse IDs.
+- **Name IDs with a short slug when talking to the user** (answers, plans, summaries, tables):
+  `DESIGN-8 core-contract-rework`, never a bare `DESIGN-8`. The slug is 2-4 kebab-case words from the item's title. Commit
+  messages, CHANGELOG and code `TODO`s keep the bare ID.
 - Reference bug IDs in commit messages (e.g. `fix(view): resync row heights on row count change (VIEW-1)`).
 - README.md is the public summary; when a user-visible feature or shortcut changes, update it too,
   following FEATURES.md.
