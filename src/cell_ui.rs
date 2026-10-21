@@ -1,9 +1,7 @@
 //! The egui side of a table: how cells are shown and edited.
 
 use crate::row_order::ColumnFilter;
-use chrono::{
-    DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike,
-};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime};
 use egui::{
     ComboBox, DragValue, Label, Response, RichText, Sense, Stroke, TextEdit, TextWrapMode, Ui,
     Vec2, Widget,
@@ -527,38 +525,4 @@ fn edit_date(value: &mut Variant, ui: &mut Ui, formats: &DateFormats) -> Respons
     let synced = formats.display(value);
     ui.data_mut(|d| d.insert_temp::<Buffer>(id, (text, synced)));
     response
-}
-
-/// A number that orders `Date`, `Time` and `DateTime` values of any kind: seconds since the
-/// epoch (dates at midnight, UTC), or since midnight for times. `None` for other values.
-/// Use it as the sort key of a date column.
-pub fn date_sort_key(value: &Variant) -> Option<i64> {
-    match value {
-        Variant::Date(d) => Some(d.and_time(NaiveTime::MIN).and_utc().timestamp()),
-        Variant::Time(t) => Some(i64::from(t.num_seconds_from_midnight())),
-        Variant::DateTime(dt) => Some(dt.timestamp()),
-        _ => None,
-    }
-}
-
-/// Filter for date columns: keeps values between `from` and `to`, both ends included and each
-/// optional. This is the date flavor of the planned `ColumnFilter::Range` (FEATURES.md,
-/// DESIGN-13). Values that aren't dates, times or date-times, and empty cells, never match.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct DateRange {
-    pub from: Option<Variant>,
-    pub to: Option<Variant>,
-}
-
-impl DateRange {
-    pub fn matches(&self, value: Option<&Variant>) -> bool {
-        let Some(key) = value.and_then(date_sort_key) else {
-            return false;
-        };
-        let within = |bound: &Option<Variant>, ok: fn(i64, i64) -> bool| match bound {
-            None => true,
-            Some(b) => date_sort_key(b).is_some_and(|b| ok(key, b)),
-        };
-        within(&self.from, |k, b| k >= b) && within(&self.to, |k, b| k <= b)
-    }
 }

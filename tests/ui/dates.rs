@@ -1,12 +1,12 @@
 //! Date, time and date-time cells (EDIT-13): formats, relative days, the parsing editor, and the
-//! sort key and range filter for date columns.
+//! sort and range filter of date columns.
 
 use crate::fixture::Table;
 use chrono::NaiveDate;
 use egui::Key;
 use egui_tabular::rvariant::{Variant, VariantTy};
 use egui_tabular::{
-    ColumnDef, ColumnUid, DateCellUi, DateFormats, DateRange, VariantTable, date_sort_key,
+    ColumnDef, ColumnFilter, ColumnUid, DateCellUi, DateFormats, RowUid, SortKey, VariantTable,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -82,28 +82,39 @@ fn editor_accepts_relative_days() {
 }
 
 #[test]
-fn sort_key_orders_dates() {
-    let a = date_sort_key(&Variant::Date(date(2026, 10, 18))).unwrap();
-    let b = date_sort_key(&Variant::Date(date(2026, 10, 21))).unwrap();
-    assert!(a < b);
-    assert_eq!(date_sort_key(&Variant::Str("x".into())), None);
+fn view_sorts_mixed_dates_and_date_times_by_time() {
+    let mut model = VariantTable::new([ColumnDef::new("D", VariantTy::DateTime)]);
+    let at = |d: NaiveDate, h| {
+        Variant::DateTime(d.and_hms_opt(h, 0, 0).unwrap().and_utc().fixed_offset())
+    };
+    // Kept as given: a Date among DateTimes still sorts by its point in time.
+    for v in [
+        at(date(2026, 10, 21), 9),
+        Variant::Date(date(2026, 10, 20)),
+        at(date(2026, 10, 19), 23),
+    ] {
+        model.insert_row([(ColumnUid(0), v)]);
+    }
+    let mut t = Table::custom(model, DateCellUi::default());
+    t.config(|c| c.sort = vec![SortKey::ascending(ColumnUid(0))]);
+    assert_eq!(
+        t.h.state().view.visible_rows(),
+        [RowUid(2), RowUid(1), RowUid(0)]
+    );
 }
 
 #[test]
-fn range_filter_includes_both_ends() {
-    let range = DateRange {
-        from: Some(Variant::Date(date(2026, 10, 18))),
-        to: Some(Variant::Date(date(2026, 10, 21))),
-    };
-    let m = |d| range.matches(Some(&Variant::Date(d)));
-    assert!(m(date(2026, 10, 18)));
-    assert!(m(date(2026, 10, 21)));
-    assert!(!m(date(2026, 10, 17)));
-    assert!(!m(date(2026, 10, 22)));
-    assert!(!range.matches(None));
-    let open = DateRange {
-        from: Some(Variant::Date(date(2026, 10, 18))),
-        to: None,
-    };
-    assert!(open.matches(Some(&Variant::Date(date(2030, 1, 1)))));
+fn range_filter_on_dates_includes_both_ends() {
+    let days = [17, 18, 21, 22].map(|d| date(2026, 10, d));
+    let mut t = table(&days, DateFormats::default());
+    t.config(|c| {
+        c.filter.columns.insert(
+            ColumnUid(0),
+            ColumnFilter::Range {
+                min: Some(Variant::Date(date(2026, 10, 18))),
+                max: Some(Variant::Date(date(2026, 10, 21))),
+            },
+        );
+    });
+    assert_eq!(t.h.state().view.visible_rows(), [RowUid(1), RowUid(2)]);
 }

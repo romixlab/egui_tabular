@@ -303,15 +303,29 @@ fn is_empty(value: Option<&Variant>) -> bool {
     }
 }
 
-/// Order of two non-empty values: text by [`RowOrderOptions::sort_case_insensitive`], anything
-/// else by [`Variant::sort_cmp`] (numbers by value across widths, dates by date, ...).
+/// Order of two non-empty values: text by [`RowOrderOptions::sort_case_insensitive`], dates and
+/// date-times by their point in time, anything else by [`Variant::sort_cmp`] (numbers by value
+/// across widths, ...).
 fn compare_values(a: &Variant, b: &Variant, options: &RowOrderOptions) -> Ordering {
     match (a, b) {
         (Variant::Str(a), Variant::Str(b)) if options.sort_case_insensitive => a
             .to_lowercase()
             .cmp(&b.to_lowercase())
             .then_with(|| a.cmp(b)),
-        _ => a.sort_cmp(b),
+        _ => match (date_key(a), date_key(b)) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            _ => a.sort_cmp(b),
+        },
+    }
+}
+
+/// Point in time of a `Date` (midnight UTC) or `DateTime`, so that a column or a filter bound
+/// may mix the two.
+fn date_key(value: &Variant) -> Option<i64> {
+    match value {
+        Variant::Date(d) => Some(d.and_time(chrono::NaiveTime::MIN).and_utc().timestamp()),
+        Variant::DateTime(dt) => Some(dt.timestamp()),
+        _ => None,
     }
 }
 
