@@ -8,6 +8,7 @@ mod columns;
 mod dates;
 mod editing;
 mod fixture;
+mod hover;
 mod keyboard;
 mod model;
 mod order;

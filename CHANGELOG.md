@@ -28,6 +28,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- VIEW-15: the selection outline is painted after all row fills and on all four sides, so the row below no longer covers its bottom edge.
 - DND-1: dropping a column header moves the column instead of swapping it with the target.
 - DND-3: a selected cell follows its column when columns are moved.
 - DND-5: user column order is saved in `TableViewConfig`.

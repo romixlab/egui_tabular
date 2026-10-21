@@ -1086,6 +1086,7 @@ impl TableView {
         let (start, offset) = s.rows.anchor();
         let mut y = (top - offset).round_ui();
         let mut row_idx = start;
+        let mut outline = Vec::new();
         while row_idx < s.rows.len() && y < top + height {
             let row_uid = s.rows.rows()[row_idx];
             let estimate = Rangef::new(y, y + s.rows.height(row_idx));
@@ -1322,16 +1323,26 @@ impl TableView {
                     painter.line_segment([r.left_bottom(), r.right_top()], stroke);
                 }
 
-                // Lines on the first and last row of selection
-                let st = Stroke {
-                    width: 1.,
-                    color: visual.warn_fg_color.gamma_multiply(0.5),
-                };
-                if is_first_row_in_selection && is_current_cell_in_selection {
-                    painter.hline(cell_rect.x_range(), cell_rect.top(), st);
-                }
-                if is_last_row_in_selection && is_current_cell_in_selection {
-                    painter.hline(cell_rect.x_range(), cell_rect.bottom(), st);
+                // Outline of the selection: inset by half the stroke so it stays inside the cell,
+                // and painted after the whole body, so no row fill covers a shared edge.
+                if is_current_cell_in_selection && let Some(range) = s.selected_range {
+                    let st = Stroke {
+                        width: 1.,
+                        color: visual.warn_fg_color.gamma_multiply(0.5),
+                    };
+                    let r = cell_rect.shrink(st.width / 2.0);
+                    if is_first_row_in_selection {
+                        outline.push(Shape::line_segment([r.left_top(), r.right_top()], st));
+                    }
+                    if is_last_row_in_selection {
+                        outline.push(Shape::line_segment([r.left_bottom(), r.right_bottom()], st));
+                    }
+                    if col_idx == range.col_start() {
+                        outline.push(Shape::line_segment([r.left_top(), r.left_bottom()], st));
+                    }
+                    if col_idx == range.col_end() {
+                        outline.push(Shape::line_segment([r.right_top(), r.right_bottom()], st));
+                    }
                 }
 
                 if resp.double_clicked() {
@@ -1382,6 +1393,7 @@ impl TableView {
             row_idx += 1;
         }
 
+        painter.add(Shape::Vec(outline));
         s.rows.finish_layout(row_idx, y - top, height);
         if repaint {
             ctx.request_repaint();

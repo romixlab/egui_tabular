@@ -1301,7 +1301,7 @@ pub struct TableStyle {
 
 - **Selection** (VIEW-7): range fill is `visuals.selection.bg_fill` at low alpha; the active cell
   gets a 2 px `visuals.selection.stroke` border and no fill; the range gets a 1 px outline on all
-  four sides. Header cells of selected columns and row numbers of selected rows are highlighted.
+  four sides, inset into the border cells and painted after every row fill (VIEW-15). Header cells of selected columns and row numbers of selected rows are highlighted.
 - **Semantic levels** (VIEW-11): `CellLevel::{Info, Warning, Error, Changed}` map to a low-alpha
   background of `hyperlink_color`, `warn_fg_color`, `error_fg_color` and the selection color; text
   keeps the normal color. Corner triangles use the full color. `Custom(Rgb)` picks black or white
@@ -1410,6 +1410,7 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 
 | ID | Fixed in | Note |
 |----|----------|------|
+| VIEW-15 | this branch | The selection outline was painted per cell, before the next row's fill, so the row below (hover or stripe) covered the shared bottom edge, and it had only top and bottom lines. Now one foreground stage after the body paints all four edges, inset by half the stroke. Test: `tests/ui/hover.rs` snapshot. |
 | VIEW-1 | `bf0d2d8` | Body iterates the view's row order, resynced after the header and on row count change; no `unwrap`. (DESIGN-9) |
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
