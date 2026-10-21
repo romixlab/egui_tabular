@@ -10,7 +10,7 @@ description = "Customizable egui table viewer and editor"
 [workspace]
 members = ["demos/*", "tabular_core", "tabular_derive", "tests"]
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 repository = "https://github.com/romixlab/egui_tabular"
 license = "MIT OR Apache-2.0"
@@ -19,11 +19,11 @@ authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 [workspace.dependencies]
 eframe = { version = "0.36", features = ["serde", "persistence"] }
 egui = { version = "0.36" }
-egui_tabular = { path = ".", version = "0.2" }
+egui_tabular = { path = ".", version = "0.3" }
 rvariant = { path = "../rvariant", features = ["serde"], version = "0.3" }
 strum = { version = "0.28", features = ["derive"] }
-tabular_core = { version = "0.2", path = "./tabular_core" }
-tabular_derive = { version = "0.2", path = "./tabular_derive" }
+tabular_core = { version = "0.3", path = "./tabular_core" }
+tabular_derive = { version = "0.3", path = "./tabular_derive" }
 
 [dependencies]
 chardetng = "1.0"

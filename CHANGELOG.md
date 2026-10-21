@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-21
+## [0.3.0] - 2026-10-21
 
 ### Added
 
@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** the core contract is new (DESIGN-8): `TableBackend`/`TableFrontend` and the flag system are replaced by `tabular_core::TableModel` (egui-free) and `CellUi` with the row builder, a `TableCommand` queue, `TableViewOptions`/`TableViewOutput`/`TableEvent`; `VariantBackend` is `VariantTable`, the derive macro generates `<Row>Table`. Apps on 0.2 port to these types; the renames below are breaking too. (The release was first tagged v0.2.0 by mistake, never pushed; crates.io's 0.2.0 is the earlier code.)
 - `DateFormats` is now `CellFormats` and `DateCellUi` is `FormattedCellUi`: the formats cover more than dates.
 - `ColumnInfo::is_sortable` defaults to true.
 - The selection follows its rows when the row order changes; the row number column shows the model's row number.
