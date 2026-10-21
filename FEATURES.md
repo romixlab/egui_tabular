@@ -350,7 +350,7 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Double-click column right edge | — | Return the column to auto width and re-fit it to the header and visible rows, eased (tool column: default width). |
 | Mouse wheel | Pointer over table | Scroll rows; Shift+wheel scrolls horizontally. |
 | Drag / click scroll bar | — | Drag the thumb, or click the track to jump there. |
-| Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. Panics with 0 rows ([SEL-2](#sel-2)). |
+| Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. |
 | `E` | Not editing, editable, single cell | Start editing. |
 | `N` | Not editing, rows can be created | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
 | Ctrl+A / Cmd+A | Not editing | Select all. |
@@ -451,13 +451,6 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 - `on_hover_cursor(Grab)` is set on the name label (`table_view.rs:155`), but the whole header cell is draggable.
 
 ### Selection and keyboard
-
-#### SEL-2
-**Arrow keys panic with zero rows.** — *crash (debug)*
-- Where: `move_down`/`move_right` compute `count - 1` (`state.rs:190`, `:210`).
-- Repro: select a cell, use tool header menu → Clear (if it doesn't panic first, see VIEW-1), press ↓.
-- Cause: the selection is never validated or cleared when the row/column set changes.
-- Test (ignored, fails): `keyboard::arrows_with_zero_rows_dont_panic`.
 
 #### SEL-3
 **Shift-extend has no anchor.** — *minor (UX)*
@@ -1384,7 +1377,7 @@ structurally, so patching them in the old code first would be wasted work.
    when the row disappears), focus-based input, programmatic control (`set_selection`,
    `scroll_to`, ...), view-owned row order (sorting) built into `RowLayout` with `SortPolicy`
    ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). Fixes EDIT-3, EDIT-5, EDIT-6,
-   EDIT-9, EDIT-12, SEL-2..5, VIEW-5, DND-3. Already landed ahead of this step: the anchor-based
+   EDIT-9, EDIT-12, SEL-3..5, VIEW-5. Already landed ahead of this step: the anchor-based
    layout ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)), the view-owned edit
    buffer and `TableViewOptions` (step 1).
 3. 🚧 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-6; ~~persist order and widths (DND-5)~~ done with VIEW-12;
@@ -1428,6 +1421,7 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
 | DND-1 | `fa9428a` | Drop moved by swapping two columns; now move (insert) semantics: `A B C D` with A dropped on D gives `B C D A`. The shown order is written to `config.column_order`. Tests: `columns::{drag_header_moves_column, drag_header_moves_column_backwards}`. |
 | DND-3 | `fa9428a` | A single selected cell now follows its column across a move (looked up by `ColumnUid` after the move); `SelectedRange::swap_col` replaced by `set_col`. Test: `columns::selection_follows_drop_target_column`. |
+| SEL-2 | `7ad7e2b` | The selection is remapped through its rows' uids whenever the row order is rebuilt and dropped when they are all gone, so arrows after Clear don't underflow (found when the test started passing). Test: `keyboard::arrows_with_zero_rows_dont_panic`. |
 | DND-5 | `7ad7e2b` | Column order, resized widths and hidden columns are saved in `TableViewConfig` (VIEW-12). Tests: `order::{column_order_comes_from_config, dragging_a_column_saves_the_order, resizing_saves_the_width_and_saved_widths_apply}`. |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 | FLAGS-1 | `80bd7d2` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |

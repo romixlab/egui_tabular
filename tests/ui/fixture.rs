@@ -322,12 +322,6 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
         self.h.run();
     }
 
-    /// Right-click a header (or any label).
-    pub fn right_click(&mut self, text: &str) {
-        self.node(text).click_secondary();
-        self.h.run();
-    }
-
     /// Right-click the tool column header (the table icon, above the row numbers).
     pub fn right_click_tool_header(&mut self) {
         let y = self.node("A").rect().center().y;

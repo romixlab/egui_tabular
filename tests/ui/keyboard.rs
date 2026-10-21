@@ -58,7 +58,6 @@ fn keyboard_works_without_pointer_over_table() {
 }
 
 #[test]
-#[ignore = "SEL-2: arrow keys panic (usize underflow) when all rows are removed"]
 fn arrows_with_zero_rows_dont_panic() {
     let mut t = Table::grid(2, 2);
     t.click("A1");
