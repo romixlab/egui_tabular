@@ -177,7 +177,8 @@ selection, the edit buffer, and paste state. It changes the model only through q
 | Viewers: Str, StrList, Bool (check mark), Enum, numbers, others via `Display` | ✅ done | Built-in `show_value`, the default of `CellUi::show_cell`. |
 | Editors: Str (TextEdit), Bool, Enum (ComboBox), U32/U64/I32/I64 (DragValue) | 🚧 partial | Built-in `edit_value`, the default of `CellUi::show_editor`; Bool and Enum commit on change. No editor for F32/F64 or other `Number` widths ([EDIT-8](#edit-8)). |
 | Column mapping choices (combo box above columns) | ✅ done | Choices in `TableViewOptions::column_mapping_choices`; selection stored in `TableViewConfig::column_mapped_to`, keyed by `ColumnUid`; `TableEvent::ColumnMappingChanged`. |
-| Date, SI values, currency viewers/editors | 📋 planned | |
+| Date, Time, DateTime viewers/editors | ✅ done | [EDIT-13](#edit-13): `DateCellUi` with `DateFormats` (format strings, optional relative days "3 d ago"), a text editor that parses them, `date_sort_key` and `DateRange` for sort/filter. `VariantCellUi` uses the default formats. |
+| SI values, currency viewers/editors | 📋 planned | |
 | Numbers edited as parsed text instead of `DragValue` | 📋 planned | `DragValue` in a grid changes values on an accidental drag ([EDIT-11](#edit-11)). Keep `DragValue` as an opt-in. |
 | Searchable enum editor | 📋 planned | ComboBox with a filter box for long enum lists. |
 | Multi-line text editing (Alt+Enter inserts a newline) | 📋 planned | Needs the editor overlay ([DESIGN-12](#design-12-editor-overlay)). |

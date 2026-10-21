@@ -5,6 +5,7 @@
 //! remove the `ignore` and move the bug to "Fixed issues" in FEATURES.md.
 
 mod columns;
+mod dates;
 mod editing;
 mod fixture;
 mod keyboard;
