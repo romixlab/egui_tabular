@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
 ### Added
 
 - Sorting (SORT-1): `TableViewConfig::sort` takes multi-key `SortKey`s; stable; numbers by value, text case-insensitive and empties last (`RowOrderOptions`); `CellUi::compare` for custom columns; `TableModel::sorted_rows` for delegated sorting (e.g. SQL); `SortPolicy::{OnExternalChange, Live, OnDemand}` with `TableView::{refresh_rows, is_row_order_stale}`.
