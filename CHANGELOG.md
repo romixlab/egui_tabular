@@ -16,7 +16,6 @@ All notable changes to this project are documented here. The format follows
 - Dates and date-times sort by their point in time, also mixed in one column, and filter with `ColumnFilter::Range`.
 - Dependency on `chrono`.
 - Hidden columns UI (VIEW-14): "Hide" in the column header menu and a "Columns" checkbox list in the tool-column header menu to show them again; both emit `TableEvent::ConfigChanged`.
-
 - `demos/simple` shows sorting, a quick filter box, a status filter, a date column, an "N of M rows" line, a row details side panel and saves `TableViewConfig` with eframe persistence.
 
 ### Changed
