@@ -216,7 +216,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Resized widths are saved in `TableViewConfig::column_widths` (VIEW-12); a saved width removed by the app returns the column to auto width. |
 | Auto-sized columns | ✅ done | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
 | Column header: name, type, hover info (required/synonyms/used) | ✅ done | |
-| Column header context menu | 🚧 partial | "Sort ascending/descending", "Clear sort" (SORT-2; disabled with a hover reason on unsortable columns), "Skip" and "Add column" work (offered per capabilities). "Hide" is a stub ([VIEW-5](#view-5)). |
+| Column header context menu | 🚧 partial | "Sort ascending/descending", "Clear sort" (SORT-2; disabled with a hover reason on unsortable columns), "Hide" (VIEW-14), "Skip" and "Add column" work (offered per capabilities). |
 | Sort control in column headers | ✅ done | SORT-2: arrows at the right edge of sortable headers (dim up/down pair when unsorted), click cycles ascending → descending → off, Shift+click adds a key, key numbers when sorting by several columns. Under `SortPolicy::OnDemand` a stale order shows the control in the warning color and a click re-sorts. Tunables in `TableViewOptions::sort_indicator` (`SortIndicatorOptions`). AccessKit button "Sort by NAME". Pixel snapshot `sorting::sort_controls_snapshot`. |
 | Column drag & drop reorder | 🐛 buggy | Swaps instead of moves; selection and order persistence broken ([DND-*](#column-drag--drop)). Reports `TableEvent::ColumnsReordered`. |
 | Tool column (row numbers, row context menu: append, skip) | ✅ done | `TableViewOptions::tool_column` hides it. |
@@ -488,10 +488,6 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 - The code resets `create_cols_on_paste` (`interaction.rs:152`), but the checkbox is bound to `create_adhoc_cols_on_paste`, so the previous choice persists. `create_cols_on_paste` is otherwise unused.
 
 ### Table view / layout
-
-#### VIEW-5
-**Column context menu stubs.** — *minor*
-- "Hide" does nothing (VIEW-14). The sort items work since SORT-2.
 
 #### VIEW-6
 **"Clear" has no confirmation.** — *minor*
@@ -1377,7 +1373,7 @@ structurally, so patching them in the old code first would be wasted work.
    when the row disappears), focus-based input, programmatic control (`set_selection`,
    `scroll_to`, ...), view-owned row order (sorting) built into `RowLayout` with `SortPolicy`
    ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). Fixes EDIT-3, EDIT-5, EDIT-6,
-   EDIT-9, EDIT-12, SEL-3..5, VIEW-5. Already landed ahead of this step: the anchor-based
+   EDIT-9, EDIT-12, SEL-3..5. Already landed ahead of this step: the anchor-based
    layout ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)), the view-owned edit
    buffer and `TableViewOptions` (step 1).
 3. 🚧 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-6; ~~persist order and widths (DND-5)~~ done with VIEW-12;
@@ -1417,10 +1413,11 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
-| EDIT-13 | `dfa65c5` | Date, Time and DateTime cells: `DateCellUi`/`DateFormats` (formats, relative days), a parsing text editor; sorted by point in time and filtered with `ColumnFilter::Range` by the view (its `date_sort_key`/`DateRange` were folded into `row_order`). Tests: `dates`. |
+| EDIT-13 | `e2e60d0` | Date, Time and DateTime cells: `DateCellUi`/`DateFormats` (formats, relative days), a parsing text editor; sorted by point in time and filtered with `ColumnFilter::Range` by the view (its `date_sort_key`/`DateRange` were folded into `row_order`). Tests: `dates`. |
 | EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
-| DND-1 | `fa9428a` | Drop moved by swapping two columns; now move (insert) semantics: `A B C D` with A dropped on D gives `B C D A`. The shown order is written to `config.column_order`. Tests: `columns::{drag_header_moves_column, drag_header_moves_column_backwards}`. |
-| DND-3 | `fa9428a` | A single selected cell now follows its column across a move (looked up by `ColumnUid` after the move); `SelectedRange::swap_col` replaced by `set_col`. Test: `columns::selection_follows_drop_target_column`. |
+| DND-1 | `281998b` | Drop moved by swapping two columns; now move (insert) semantics: `A B C D` with A dropped on D gives `B C D A`. The shown order is written to `config.column_order`. Tests: `columns::{drag_header_moves_column, drag_header_moves_column_backwards}`. |
+| DND-3 | `281998b` | A single selected cell now follows its column across a move (looked up by `ColumnUid` after the move); `SelectedRange::swap_col` replaced by `set_col`. Test: `columns::selection_follows_drop_target_column`. |
+| VIEW-5 | `281998b` | Header menu stubs: the sort items work since SORT-2 (`690813d`), "Hide" since VIEW-14. |
 | SEL-2 | `7ad7e2b` | The selection is remapped through its rows' uids whenever the row order is rebuilt and dropped when they are all gone, so arrows after Clear don't underflow (found when the test started passing). Test: `keyboard::arrows_with_zero_rows_dont_panic`. |
 | DND-5 | `7ad7e2b` | Column order, resized widths and hidden columns are saved in `TableViewConfig` (VIEW-12). Tests: `order::{column_order_comes_from_config, dragging_a_column_saves_the_order, resizing_saves_the_width_and_saved_widths_apply}`. |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
