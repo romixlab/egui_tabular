@@ -121,7 +121,8 @@ The view must degrade per column, never panic or show broken UI. Features that n
 | `src/table_view/interaction.rs` | Keyboard handling, copy, paste (+ paste modal), selection moves. |
 | `src/table_view/state.rs` | `State` (incl. the edit buffer, command queue, pending events) and `SelectedRange` (selection + editing coord). |
 | `src/table_view/tool_column.rs` | Left "tool" column: row numbers and context menus. |
-| `src/table_view/config.rs` | `TableViewConfig` (serializable view settings). |
+| `src/table_view/config.rs` | `TableViewConfig` (serializable view settings and saved view state: column order, widths, hidden columns, sort, filter). |
+| `src/row_order.rs` | The view's row order stage: `RowFilter`, `ColumnFilter`, `SortPolicy`, `RowOrderOptions` and the filter → stable sort pipeline (SORT-1, FILTER-1). Unit-tested. |
 | `src/cell_ui.rs` | `CellUi` trait (row builder `show_row`, `show_cell`, `text`, `begin_edit`, `show_editor`, `header_ui`), `RowCells`, `EditorResponse`, `VariantCellUi`, built-in viewer and editor. |
 | `src/commands.rs` | `TableCommand` (view-originated changes) and `apply`, which returns the inverse. Unit-tested. |
 | `src/backends/variant.rs` | `VariantTable`: in-memory `HashMap<CellCoord, Variant>` model, `ColumnDef`. |
@@ -154,11 +155,11 @@ selection, the edit buffer, and paste state. It changes the model only through q
 | Change notification by revision counters (`Revision`) | ✅ done | Never consumed: any number of views and app code compare with their own last-seen copy. Replaced the flag system (FLAGS-1..5). |
 | Capabilities (`Capabilities`) | ✅ done | The view only offers what the model allows; `TableViewOptions::read_only` on top. |
 | Read-only tables | ✅ done | `VariantTable::set_read_only` and `TableViewOptions::read_only`. Skipping stays allowed. |
-| Remote/lazy models | 💡 idea | Server-side sorting has a planned hook (`sorted_rows`, [DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui), "Row order"), added with sorting. |
+| Remote/lazy models | 💡 idea | Delegated sorting is there: `TableModel::sorted_rows(keys)` returns the order (e.g. SQL `ORDER BY`), the view still filters it (SORT-1). Lazy loading of rows is not. |
 | Column "used" vs "available" | ✅ done | `ColumnInfo::is_used`, informational (shown in the header hover). The view shows all columns. |
 | Undo / redo | 🚧 partial | Every `TableCommand::apply` returns its inverse (unit-tested); no undo stack or UI yet (roadmap step 5). |
-| Sorting | ⬜ stub | `is_sortable`, "Sort ascending/descending" menu items exist but do nothing. Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI and stability policy in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
-| Filtering | 📋 planned | Planned in the view ([DESIGN-8](#design-8-core-contract-rework-tablemodel--cellui)); UI in [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Sorting | 🚧 partial | SORT-1: `TableViewConfig::sort` (multi-key `SortKey`s), stable, by `get()` values (numbers by value, text case-insensitive, empties last, each a `RowOrderOptions` field), `CellUi::compare` for custom columns, `TableModel::sorted_rows` delegation, `SortPolicy`. The selection follows its rows. No header UI yet: indicator, click and menu come with SORT-2 ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)); the menu items are still stubs ([VIEW-5](#view-5)). |
+| Filtering | 🚧 partial | FILTER-1: `TableViewConfig::filter` = `RowFilter { quick, columns }`. Quick filter: whitespace-separated terms, each must appear in some shown column's text. Column filters: `ColumnFilter::{Contains, OneOf, Range, Empty, Custom}`, evaluated over `get()`/`CellUi::text()` or by the app's `CellUi::matches`. `TableView::row_counts()` for "N of M rows". No filter UI in the view yet (find bar and header filter popups, [DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). |
 | Typed column type (`VariantTy`, or none for custom columns) | ✅ done | `ColumnInfo::ty: Option<VariantTy>` + `type_label`. Picks the editor for empty cells. |
 | Rename columns | 📋 planned | Model method, capability and command come with the UI (roadmap step 5). |
 | Move rows (drag in the tool column) | 💡 idea | Needs a model-side order (`move_rows`), since the view's row order is otherwise natural or sorted. |
@@ -191,12 +192,12 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 |---------|--------|-------|
 | Custom cell UI with any egui widget | ✅ done | `CellUi`; cells get `&mut M` for interactive widgets. |
 | Row builder: one model lookup per row, cells filled by column ([DESIGN-10](#design-10-row-builder-for-cell-ui)) | ✅ done | `CellUi::show_row` + `RowCells::{cell, wants, level, tooltip}`. Tested: one lookup per visible row per frame; cells land in their columns after a move. |
-| Models without `Variant` values (`get` optional), per-column degradation | 🚧 partial | Rendering, selection, copy (via `CellUi::text`) work; such cells aren't editable. Header/menu hints for disabled features come with sort (DESIGN-11). |
+| Models without `Variant` values (`get` optional), per-column degradation | 🚧 partial | Rendering, selection, copy (via `CellUi::text`) work; such cells aren't editable. Header/menu hints for disabled features come with the sort UI (SORT-2, DESIGN-11). Custom columns sort and filter through `CellUi::compare` / `CellUi::matches`. |
 | Text for custom cells (`CellUi::text`) for copy/export | ✅ done | Find comes with DESIGN-13. |
 | Cheap append + front eviction (ring buffer traces) | 🚧 partial | Every row-set change collects all uids into a new `Vec` and compares prefixes (`RowLayout::sync`), so even appends are O(row count); appends then index only the new rows. Front eviction re-indexes everything. A trace that appends every frame pays O(row count) per frame. Planned `rows_log` ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)). |
 | Stick to bottom | 🚧 partial | See Table view; needs to be an option and to survive eviction. |
 | Scroll position kept while rows are evicted above | ✅ done | The anchor is a `RowUid`; if the anchored row itself is evicted the view stays at its index. |
-| Sort/filter policy for constantly changing values (live re-sort vs. on demand) | 📋 planned | [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
+| Sort/filter policy for constantly changing values (live re-sort vs. on demand) | ✅ done | `RowOrderOptions::policy`: `SortPolicy::{OnExternalChange (default), Live, OnDemand}`; `TableView::{refresh_rows, is_row_order_stale}` (SORT-1). Re-sorting is a full O(n log n) pass per change: no incremental insert for `rows_log` yet (DESIGN-11). |
 | Highlight changed values (flash that fades) | 📋 planned | `CellLevel::Changed` + fade in the view, or per-cell "changed at" in metadata. |
 | Pause / freeze display while data keeps coming | 💡 idea | View-side snapshot of `visible_rows` plus "N new rows" badge; app keeps receiving. |
 | Live data demo (simulated CAN bus trace + register map) | 📋 planned | `demos/live`; also the benchmark scenario. |
@@ -211,7 +212,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Mouse wheel and vertical scroll bar | ✅ done | Bar sits right after the last column (or at the right edge if columns are wider). Proportional to rows, not pixels. Wheel delta passes to a parent scroll area at the ends. No touch drag-to-scroll ([VIEW-8](#view-8)). |
 | Horizontal scrolling | ✅ done | egui `ScrollArea::horizontal`. |
 | Heterogeneous row heights | 🐛 buggy | `TableViewConfig::use_heterogeneous_row_heights` (checkbox in the `simple` demo). Measured every frame and cached by `RowUid`; editing makes rows jump ([EDIT-5](#edit-5)). |
-| Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Widths are keyed by `ColumnUid` but not persisted ([DND-5](#dnd-5)). |
+| Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Resized widths are saved in `TableViewConfig::column_widths` (VIEW-12); a saved width removed by the app returns the column to auto width. |
 | Auto-sized columns | ✅ done | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
 | Column header: name, type, hover info (required/synonyms/used) | ✅ done | |
 | Column header context menu | 🚧 partial | "Skip" and "Add column" work (offered per capabilities). "Sort", "Hide" are stubs ([VIEW-5](#view-5)). |
@@ -221,7 +222,8 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | "No columns" state with "Create column" button | ✅ done | Offered only if the model can create columns. |
 | Multiple tables in one parent `Ui` | ✅ done | All view ids derive from `TableViewOptions::id_salt` (salted with the parent `Ui`'s id). |
 | Several views over one model | ✅ done | Each view tracks the model's `Revision` itself (FLAGS-1). Tested. |
-| View output: `TableViewOutput { response, events }` | ✅ done | `TableEvent::{SelectionChanged, CellCommitted, EditCancelled, CommandFailed, ColumnMappingChanged, ColumnsReordered, RowsCreated, Message}`. |
+| View output: `TableViewOutput { response, events }` | ✅ done | `TableEvent::{SelectionChanged, CellCommitted, EditCancelled, CommandFailed, ColumnMappingChanged, ColumnsReordered, RowClicked, RowDoubleClicked, SortChanged, ConfigChanged, RowsCreated, Message}`. |
+| Row click and selection by `RowUid` (detail panels) | ✅ done | VIEW-13: `TableEvent::RowClicked { row, col }` (also on an already selected row; `col: None` for the row number), `RowDoubleClicked`; `TableView::{active_row, selected_rows, visible_rows, visible_columns, row_counts}`. |
 | Cell background colors / corner triangles / tooltips | ✅ done | |
 | Selection: single cell, rectangle, whole row, select all | 🐛 buggy | See [SEL-*](#selection-and-keyboard). |
 | Scroll selection into view on keyboard navigation | 🚧 partial | Vertical only (arrow keys). No horizontal reveal yet. |
@@ -233,9 +235,9 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Selected rows/columns highlighted in headers and row numbers | 📋 planned | [DESIGN-14](#design-14-look-and-feel). |
 | Active cell drawn separately from the selected range | 📋 planned | [DESIGN-14](#design-14-look-and-feel); folds in [VIEW-7](#view-7). |
 | Cell context menu (copy, cut, paste, clear, insert/delete row) | 📋 planned | Only the tool column and headers have menus. |
-| Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 📋 planned | Roadmap step 2, with the uid-based selection. Needed for "jump to error", "select imported row". |
+| Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 🚧 partial | VIEW-13: `select_row`, `clear_selection`, `scroll_to_row`, `refresh_rows` (applied at the next `show`, not reported as events). The rest comes in roadmap step 2, with the uid-based selection. |
 | Find (Ctrl+F): highlight matches, next/previous | 📋 planned | Distinct from filtering; uses `get()`/`CellUi::text()`. [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
-| Hide columns and a column chooser to show them again | 📋 planned | `hidden_columns` is planned in config, but without a chooser hidden columns can't be restored. Chooser lives in the tool-column header menu. |
+| Hide columns and a column chooser to show them again | 🚧 partial | `TableViewConfig::hidden_columns` hides columns (VIEW-12); the "Hide" menu item and a chooser in the tool-column header menu come with VIEW-14. |
 | Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
 | Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
@@ -248,10 +250,10 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | User feedback for refused or failed actions | ✅ done | `TableEvent::Message { level, text }` (paste without selection, paste the table can't take) and `TableEvent::CommandFailed`; the app shows them (VIEW-10). |
 | Striped rows, hover highlight | ✅ done | Odd rows use `faint_bg_color`, the hovered row `widgets.hovered.bg_fill`. |
 | Scroll to a newly appended row | ✅ done | `N`, "Append row" in the tool column menus and the "Add row" button. |
-| Visual state persistence (`TableViewConfig` is serde) | 🚧 partial | Column order and widths are not persisted ([DND-5](#dnd-5)). |
+| Visual state persistence (`TableViewConfig` is serde) | ✅ done | VIEW-12: column order, resized widths, hidden columns, sort and filter live in `TableViewConfig` (`#[serde(default)]`, so older saved configs load). The view reads it every frame (the app may change it) and reports its own changes with `TableEvent::ConfigChanged`. Keyed by `ColumnUid`: persist only for models with stable column uids. |
 | Custom column header UI (`CellUi::header_ui`) | ✅ done | |
 | Per-column render config | 📋 planned | Widths become per-column view state ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)). |
-| Column order kept when the model's column set changes | ✅ done | Known columns keep the user's order, new ones are appended (`sync_model`). Not persisted yet ([DND-5](#dnd-5)). |
+| Column order kept when the model's column set changes | ✅ done | Known columns keep the user's order, new ones are appended (`sync_model`). Saved in `TableViewConfig::column_order`; columns the model doesn't have yet keep their place there (VIEW-12). |
 
 ### Editing
 
@@ -449,10 +451,6 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 **Drop-target highlight hides the header text and highlights the source column.** — *minor (visual)*
 - Where: `table_view.rs:188-208`.
 - Painted after the content at 50% alpha over the top 66% of the cell. Prefer a thin insertion line on the target edge, and skip it when hovering the dragged column itself.
-
-#### DND-5
-**User column order is not persisted.** — *major*
-- Since step 1 the order survives column set changes (`sync_model` keeps known columns in place), but it is not stored in `TableViewConfig`, so it is lost on restart.
 
 #### DND-6
 **Grab cursor only over the label.** — *minor*
@@ -1247,6 +1245,17 @@ Glide Data Grid do, instead of inside the cell's `Ui`.
 
 **Status:** proposed 2026-10-01; policy in roadmap step 2, UI in step 5.
 
+**Core implemented 2026-10-21 (SORT-1, FILTER-1, VIEW-12, VIEW-13)**, ahead of the step 2 selection rewrite. Where the code differs from the text below:
+
+- Sort and filter are view state in `TableViewConfig` (`sort: Vec<SortKey>`, `filter: RowFilter`), serde, saved by the app with column order, resized widths and hidden columns. The app may set them from its own toolbar; the view re-applies on the next frame when they differ from what it last applied.
+- Pipeline (`src/row_order.rs`): `model.rows()` or `model.sorted_rows(keys)` → filter → stable sort by `row_values` (one lookup per row for all keys). Every comparison tunable is a `RowOrderOptions` field: `sort_case_insensitive`, `empty_last`, `filter_case_insensitive`, `quick_filter_terms`, `policy`.
+- Filters: `RowFilter { quick, columns: BTreeMap<ColumnUid, ColumnFilter> }`, `ColumnFilter::{Contains, OneOf (also any item of a StrList), Range (by sort order), Empty, Custom(String)}`. Instead of `CellUi::filter_ui`, the app hooks evaluation with `CellUi::matches(model, coord, filter) -> Option<bool>` (the only meaning of `Custom`) and custom ordering with `CellUi::compare(model, col, a, b) -> Option<Ordering>`. Filter text is the value's `to_string()`, or `CellUi::text()` without a value (same as copy).
+- Own edits are told from outside changes by `revision.cells` right after the view applied its commands. Under `OnExternalChange` an edited row stays in place, not yet marked as stale. Row set changes always re-apply, also under `OnDemand`.
+- When the sort or filter changes, the view keeps its scroll position (anchor index) instead of following the top row, and reveals the selected row if there is one. On data changes the anchor follows its row as before.
+- Until the uid-based selection (step 2) the index-based selection is remapped through the uids of its first and last row; a selection whose rows are all filtered out is dropped. Programmatic selection (`select_row`) is not reported as `SelectionChanged`.
+- The tool column shows the natural row number, so filtered-out rows show as gaps.
+- Not yet: the sort indicator and header menu (SORT-2), the find bar, per-column filter popups, marking rows that no longer match after an own edit.
+
 **Stability policy.** Re-sorting or re-filtering immediately after a value changes makes rows jump
 away under the user: edit a cell in a sorted column and the row vanishes. AG Grid, Google Sheets
 and Airtable keep the row in place until the sort is applied again.
@@ -1383,7 +1392,7 @@ structurally, so patching them in the old code first would be wasted work.
    EDIT-9, EDIT-12, SEL-2..5, VIEW-5, DND-3. Already landed ahead of this step: the anchor-based
    layout ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)), the view-owned edit
    buffer and `TableViewOptions` (step 1).
-3. 📋 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-5, DND-6; persist `ColumnWidths`;
+3. 🚧 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-6; ~~persist order and widths (DND-5)~~ done with VIEW-12;
    hidden columns with a column chooser; frozen columns and a sticky tool column.
 4. 📋 **Live data** ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)): `rows_log`
    fast path with a `VecDeque` row order, configurable stick to bottom that survives eviction,
@@ -1421,6 +1430,7 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-3 | `bf0d2d8` | No egui_extras state; all ids derive from the `id` passed to `show`. (DESIGN-9) |
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
 | EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
+| DND-5 | `TBD` | Column order, resized widths and hidden columns are saved in `TableViewConfig` (VIEW-12). Tests: `order::{column_order_comes_from_config, dragging_a_column_saves_the_order, resizing_saves_the_width_and_saved_widths_apply}`. |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 | FLAGS-1 | `80bd7d2` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |
 | FLAGS-2 | `80bd7d2` | View events (`rows_selected`, `column_mapping_changed`) moved to `TableViewOutput::events`. (DESIGN-8) |

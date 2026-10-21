@@ -44,3 +44,4 @@ tap = "1.0"
 
 [dev-dependencies]
 egui_kittest = "0.36"
+serde_json = "1"

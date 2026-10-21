@@ -58,6 +58,11 @@ impl RowLayout {
         &self.rows
     }
 
+    /// Display index of `row`, if it is shown.
+    pub(super) fn index_of(&self, row: RowUid) -> Option<usize> {
+        self.index.get(&row).copied()
+    }
+
     pub(super) fn len(&self) -> usize {
         self.rows.len()
     }
@@ -101,6 +106,13 @@ impl RowLayout {
         if grew && self.at_bottom {
             self.scroll_to_end();
         }
+    }
+
+    /// Make the next [`Self::sync`] keep the scroll position (the anchor's index) instead of
+    /// following the anchor row, e.g. when the user re-sorts.
+    pub(super) fn keep_position(&mut self) {
+        self.anchor.row = None;
+        self.anchor.offset = 0.0;
     }
 
     /// Full height of the row at `idx`: measured, or the default if not measured yet.
@@ -362,6 +374,23 @@ impl ColumnWidths {
             key,
             ColumnWidth {
                 width: (w.width + delta).max(MIN_COLUMN_WIDTH).round_ui(),
+                auto: false,
+            },
+        );
+        self.remeasure.remove(&key);
+    }
+
+    /// True if the user (or the saved config) set this column's width.
+    pub(super) fn is_manual(&self, key: ColumnKey) -> bool {
+        self.widths.get(&key).is_some_and(|w| !w.auto)
+    }
+
+    /// Fix the column at `width`, as if the user had resized it.
+    pub(super) fn set_manual(&mut self, key: ColumnKey, width: f32) {
+        self.widths.insert(
+            key,
+            ColumnWidth {
+                width: width.max(MIN_COLUMN_WIDTH).round_ui(),
                 auto: false,
             },
         );

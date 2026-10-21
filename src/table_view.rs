@@ -7,8 +7,9 @@ mod tool_column;
 
 use crate::cell_ui::{CellSlot, CellUi, RowCells};
 use crate::commands::TableCommand;
+use crate::row_order::{self, RowOrderOptions, SortPolicy};
 use crate::table_view::layout::{ColumnKey, MAX_AUTO_COLUMN_WIDTH};
-use crate::table_view::state::{EditBuffer, SelectedRange};
+use crate::table_view::state::{EditBuffer, OrderInputs, SelectedRange};
 pub use config::TableViewConfig;
 use egui::emath::GuiRounding;
 use egui::epaint::{PathShape, PathStroke};
@@ -20,8 +21,8 @@ use egui::{
 };
 use std::collections::{HashMap, HashSet};
 use tabular_core::{
-    Capabilities, CellCoord, CellLevel, ColumnInfo, ColumnUid, ModelError, RowPosition, RowUid,
-    TableModel,
+    Capabilities, CellCoord, CellLevel, ColumnInfo, ColumnUid, ModelError, Revision, RowPosition,
+    RowUid, TableModel,
 };
 use tap::Tap;
 
@@ -128,6 +129,8 @@ pub struct TableViewOptions {
     pub read_only: bool,
     /// Choices of the combo box above each column. No combo boxes if empty.
     pub column_mapping_choices: Vec<String>,
+    /// How rows are filtered and sorted.
+    pub row_order: RowOrderOptions,
 }
 
 impl Default for TableViewOptions {
@@ -138,6 +141,7 @@ impl Default for TableViewOptions {
             tool_column: true,
             read_only: false,
             column_mapping_choices: vec![],
+            row_order: RowOrderOptions::default(),
         }
     }
 }
@@ -165,6 +169,22 @@ pub enum TableEvent {
     },
     ColumnMappingChanged(ColumnUid),
     ColumnsReordered,
+    /// Primary click on a row: on a cell (`col`), or on its row number (`col: None`). Also
+    /// when the row was already selected, e.g. to reopen a detail panel.
+    RowClicked {
+        row: RowUid,
+        col: Option<ColumnUid>,
+    },
+    /// Double click on a row's cell or row number.
+    RowDoubleClicked {
+        row: RowUid,
+        col: Option<ColumnUid>,
+    },
+    /// The user changed [`TableViewConfig::sort`].
+    SortChanged,
+    /// The view changed something in [`TableViewConfig`] (column order, widths, visibility,
+    /// sort, filter): persist it now if you persist on change.
+    ConfigChanged,
     RowsCreated(Vec<RowUid>),
     /// Feedback for the user, e.g. for a toast or a status line.
     Message {
@@ -202,6 +222,69 @@ impl TableView {
         &mut self.options
     }
 
+    /// Shown rows in display order: after filter and sort, as of the last [`show`](Self::show).
+    pub fn visible_rows(&self) -> &[RowUid] {
+        self.state.rows.rows()
+    }
+
+    /// Shown columns in display order, as of the last [`show`](Self::show).
+    pub fn visible_columns(&self) -> &[ColumnUid] {
+        &self.state.columns_ordered
+    }
+
+    /// `(shown, total)` row counts, e.g. for "1 234 of 10 000 rows".
+    pub fn row_counts(&self) -> (usize, usize) {
+        (self.state.rows.len(), self.state.row_total)
+    }
+
+    /// Rows touched by the selection, in display order.
+    pub fn selected_rows(&self) -> Vec<RowUid> {
+        self.state
+            .selected_range
+            .map(|r| self.state.rows.rows()[r.row_start()..=r.row_end()].to_vec())
+            .unwrap_or_default()
+    }
+
+    /// The selected row when the selection is within one row (a cell or the row), e.g. for a
+    /// detail panel. `None` without a selection or when it spans several rows.
+    pub fn active_row(&self) -> Option<RowUid> {
+        let r = self.state.selected_range?;
+        (r.row_start() == r.row_end())
+            .then(|| self.state.rows.rows().get(r.row_start()).copied())
+            .flatten()
+    }
+
+    /// Select `row` and scroll it into view on the next [`show`](Self::show). Ignored if the
+    /// row isn't shown then (filtered out or gone). Not reported as
+    /// [`TableEvent::SelectionChanged`]: that event is for the user's changes.
+    pub fn select_row(&mut self, row: RowUid) {
+        self.state.requests.push(state::Request::SelectRow(row));
+    }
+
+    /// Clear the selection on the next [`show`](Self::show), without a
+    /// [`TableEvent::SelectionChanged`].
+    pub fn clear_selection(&mut self) {
+        self.state.requests.push(state::Request::ClearSelection);
+    }
+
+    /// Scroll `row` into view on the next [`show`](Self::show), if it is shown.
+    pub fn scroll_to_row(&mut self, row: RowUid) {
+        self.state.requests.push(state::Request::ScrollToRow(row));
+    }
+
+    /// Re-apply sort and filter on the next [`show`](Self::show): for
+    /// [`SortPolicy::OnDemand`](crate::SortPolicy::OnDemand), or after something a
+    /// [`CellUi::compare`] or [`CellUi::matches`] hook depends on changed.
+    pub fn refresh_rows(&mut self) {
+        self.state.refresh_rows = true;
+    }
+
+    /// Under [`SortPolicy::OnDemand`](crate::SortPolicy::OnDemand): values changed since the
+    /// rows were last sorted and filtered, so the order may be out of date.
+    pub fn is_row_order_stale(&self) -> bool {
+        self.state.order_stale
+    }
+
     /// Show `model`, with cells drawn and edited by `cell_ui` (e.g. [`VariantCellUi`](crate::VariantCellUi)).
     ///
     /// Changes the user makes are applied to `model` during this call, but never while the table
@@ -215,13 +298,14 @@ impl TableView {
     ) -> TableViewOutput {
         let id = ui.make_persistent_id(self.options.id_salt);
         let caps = self.capabilities(model);
-        let prev_selected_range = self.state.selected_range;
-        self.sync_model(model);
+        self.sync_model(model, cell_ui, config);
+        self.handle_requests();
+        let prev_selection = self.selection_identity();
         let response = self.show_table(ui, id, caps, model, cell_ui, config);
-        self.apply_commands(model);
+        self.apply_commands(model, cell_ui, config);
         self.state.end_stale_edit();
 
-        if self.state.selected_range != prev_selected_range {
+        if self.selection_identity() != prev_selection {
             let rows = self
                 .state
                 .selected_range
@@ -238,6 +322,45 @@ impl TableView {
         TableViewOutput {
             response,
             events: std::mem::take(&mut self.state.events),
+        }
+    }
+
+    /// The selection by position and by the rows at its ends, so that a re-sort that keeps the
+    /// same rows selected is not reported as a change.
+    fn selection_identity(&self) -> Option<(SelectedRange, Option<RowUid>, Option<RowUid>)> {
+        let rows = self.state.rows.rows();
+        self.state.selected_range.map(|r| {
+            (
+                r,
+                rows.get(r.row_start()).copied(),
+                rows.get(r.row_end()).copied(),
+            )
+        })
+    }
+
+    fn handle_requests(&mut self) {
+        for request in std::mem::take(&mut self.state.requests) {
+            match request {
+                state::Request::SelectRow(row) => {
+                    if let Some(idx) = self.state.rows.index_of(row) {
+                        if let Some(coord) = self.state.selected_range.and_then(|r| r.editing()) {
+                            self.state.commit_edit(coord);
+                        }
+                        self.state.selected_range = Some(SelectedRange::single_row(
+                            idx,
+                            self.state.columns_ordered.len(),
+                        ));
+                        self.state.rows.reveal_row(row);
+                    }
+                }
+                state::Request::ClearSelection => {
+                    if let Some(coord) = self.state.selected_range.and_then(|r| r.editing()) {
+                        self.state.commit_edit(coord);
+                    }
+                    self.state.selected_range = None;
+                }
+                state::Request::ScrollToRow(row) => self.state.rows.reveal_row(row),
+            }
         }
     }
 
@@ -263,7 +386,7 @@ impl TableView {
         if pointer_over_table && caps.edit_cells && !self.state.is_editing() {
             let is_no_columns = self.state.columns_ordered.is_empty();
             self.handle_paste(is_no_columns, caps, ui);
-            self.apply_commands(model);
+            self.apply_commands(model, cell_ui, config);
         }
 
         if self.state.columns_ordered.is_empty() {
@@ -280,7 +403,7 @@ impl TableView {
         }
         self.handle_paste_continue(id, ui);
         // Apply what the input queued, so that the table shows the result in this frame.
-        self.apply_commands(model);
+        self.apply_commands(model, cell_ui, config);
 
         let columns = core::mem::take(&mut self.state.columns_ordered);
         let keys: Vec<ColumnKey> = self
@@ -310,6 +433,23 @@ impl TableView {
         let body_height = (height - header_height)
             .max(3.0 * (config.minimum_row_height + 2.0 * pad.y))
             .round_ui();
+
+        // Saved widths are the user's; columns without one size to fit.
+        for col in &columns {
+            let key = ColumnKey::Data(*col);
+            match config.column_widths.get(col) {
+                Some(&w) => {
+                    let current = self.state.column_widths.get(key);
+                    if current.auto || (current.width - w).abs() > 0.5 {
+                        self.state.column_widths.set_manual(key, w);
+                    }
+                }
+                None if self.state.column_widths.is_manual(key) => {
+                    self.state.column_widths.reset(key)
+                }
+                None => {}
+            }
+        }
 
         // Auto-sizing changes ease in, user resizing is immediate.
         let ctx = ui.ctx().clone();
@@ -419,6 +559,7 @@ impl TableView {
                         );
                         self.column_resize_handles(
                             ui,
+                            config,
                             &grid,
                             Rangef::new(top, body_top),
                             Rangef::new(top, bottom),
@@ -439,8 +580,13 @@ impl TableView {
             if let Some((c1, c2)) = swap_columns {
                 Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
                 self.state.events.push(TableEvent::ColumnsReordered);
+                self.state.events.push(TableEvent::ConfigChanged);
             }
         });
+        if swap_columns.is_some() {
+            let shown = self.state.columns_ordered.clone();
+            self.store_column_order(config, &shown);
+        }
 
         if self.state.rows.len() == 0 && caps.create_rows {
             let create_row = ui.button("Add row");
@@ -458,10 +604,17 @@ impl TableView {
     }
 
     /// Apply the queued commands, then sync with the changed model.
-    fn apply_commands(&mut self, model: &mut impl TableModel) {
+    fn apply_commands<M: TableModel, C: CellUi<M>>(
+        &mut self,
+        model: &mut M,
+        cell_ui: &C,
+        config: &TableViewConfig,
+    ) {
+        let mut applied_any = false;
         for command in std::mem::take(&mut self.state.commands) {
             match command.apply(model) {
                 Ok(applied) => {
+                    applied_any = true;
                     if let TableCommand::Set { coord, .. } = &command {
                         self.state.events.push(TableEvent::CellCommitted(*coord));
                     }
@@ -482,7 +635,10 @@ impl TableView {
                 }),
             }
         }
-        self.sync_model(model);
+        if applied_any {
+            self.state.own_cells = Some(model.revision().cells);
+        }
+        self.sync_model(model, cell_ui, config);
     }
 
     /// Scroll rows with the mouse wheel. The delta is consumed only if the table actually
@@ -507,34 +663,160 @@ impl TableView {
         }
     }
 
-    /// Pick up column and row changes from the model's revision counters. Columns the user moved
-    /// keep their place; new columns are appended. Rows are also resynced when the row count
-    /// differs, in case the model forgot to bump `revision.rows`.
-    fn sync_model(&mut self, model: &impl TableModel) {
+    /// Pick up column and row changes from the model's revision counters and the user's column
+    /// and row order from `config`. Columns the user moved keep their place; new columns are
+    /// appended. Rows are also resynced when the row count differs, in case the model forgot to
+    /// bump `revision.rows`.
+    fn sync_model<M: TableModel, C: CellUi<M>>(
+        &mut self,
+        model: &M,
+        cell_ui: &C,
+        config: &TableViewConfig,
+    ) {
         let rev = model.revision();
         let last = self.state.revision;
         if last.is_none_or(|l| l.columns != rev.columns || l.skips != rev.skips) {
-            let natural: Vec<ColumnUid> = model.columns().collect();
-            let present: HashSet<ColumnUid> = natural.iter().copied().collect();
-            let mut ordered: Vec<ColumnUid> = self
+            self.state.natural_columns = model.columns().collect();
+            self.state.columns = self
                 .state
-                .columns_ordered
-                .iter()
-                .copied()
-                .filter(|col| present.contains(col))
-                .collect();
-            let known: HashSet<ColumnUid> = ordered.iter().copied().collect();
-            ordered.extend(natural.iter().filter(|col| !known.contains(col)));
-            self.state.columns_ordered = ordered;
-            self.state.columns = natural
+                .natural_columns
                 .iter()
                 .filter_map(|col| model.column(*col).map(|info| (*col, info.clone())))
                 .collect();
         }
-        if last.is_none_or(|l| l.rows != rev.rows) || self.state.rows.len() != model.row_count() {
-            self.state.rows.sync(model.rows().collect());
-        }
+        self.state.columns_ordered = self
+            .all_columns_ordered(config)
+            .into_iter()
+            .filter(|col| !config.hidden_columns.contains(col))
+            .collect();
+        self.sync_rows(model, cell_ui, config, rev, last);
         self.state.revision = Some(rev);
+    }
+
+    /// Every model column in the user's order, hidden ones included.
+    fn all_columns_ordered(&self, config: &TableViewConfig) -> Vec<ColumnUid> {
+        let present: HashSet<ColumnUid> = self.state.natural_columns.iter().copied().collect();
+        let mut ordered: Vec<ColumnUid> = config
+            .column_order
+            .iter()
+            .copied()
+            .filter(|col| present.contains(col))
+            .collect();
+        let known: HashSet<ColumnUid> = ordered.iter().copied().collect();
+        ordered.extend(
+            self.state
+                .natural_columns
+                .iter()
+                .filter(|col| !known.contains(col)),
+        );
+        ordered
+    }
+
+    /// Write the shown columns' new order `shown` into `config.column_order`. Hidden columns
+    /// keep their slots, columns the model doesn't have stay listed at the end.
+    fn store_column_order(&self, config: &mut TableViewConfig, shown: &[ColumnUid]) {
+        let all = self.all_columns_ordered(config);
+        let mut shown_iter = shown.iter().copied();
+        let mut order: Vec<ColumnUid> = all
+            .iter()
+            .map(|col| {
+                if config.hidden_columns.contains(col) {
+                    *col
+                } else {
+                    shown_iter.next().unwrap_or(*col)
+                }
+            })
+            .collect();
+        let present: HashSet<ColumnUid> = all.iter().copied().collect();
+        order.extend(
+            config
+                .column_order
+                .iter()
+                .filter(|col| !present.contains(col)),
+        );
+        config.column_order = order;
+    }
+
+    /// Recompute the display order (filter + sort) when the row set, the sort, the filter or,
+    /// as `SortPolicy` says, the cell values changed.
+    fn sync_rows<M: TableModel, C: CellUi<M>>(
+        &mut self,
+        model: &M,
+        cell_ui: &C,
+        config: &TableViewConfig,
+        rev: Revision,
+        last: Option<Revision>,
+    ) {
+        let s = &mut self.state;
+        let inputs = OrderInputs {
+            sort: config.sort.clone(),
+            filter: config.filter.clone(),
+            quick_columns: if config.filter.quick.trim().is_empty() {
+                vec![]
+            } else {
+                s.columns_ordered.clone()
+            },
+        };
+        let rows_changed =
+            last.is_none_or(|l| l.rows != rev.rows) || s.row_total != model.row_count();
+        let inputs_changed = s.order_inputs.as_ref() != Some(&inputs);
+        let mut rebuild = rows_changed || inputs_changed || std::mem::take(&mut s.refresh_rows);
+        let order_active = !inputs.sort.is_empty() || inputs.filter.is_active();
+        if !rebuild && order_active && last.is_some_and(|l| l.cells != rev.cells) {
+            match self.options.row_order.policy {
+                SortPolicy::Live => rebuild = true,
+                SortPolicy::OnExternalChange => rebuild = s.own_cells != Some(rev.cells),
+                SortPolicy::OnDemand => s.order_stale = true,
+            }
+        }
+        if !rebuild {
+            return;
+        }
+
+        let order = row_order::compute(
+            model,
+            cell_ui,
+            &inputs.quick_columns,
+            &inputs.sort,
+            &inputs.filter,
+            &self.options.row_order,
+        );
+        // The selection follows its rows to their new places.
+        let selected = s.selected_range.map(|r| {
+            let rows = s.rows.rows();
+            (
+                rows.get(r.row_start()).copied(),
+                rows.get(r.row_end()).copied(),
+            )
+        });
+        let active = selected.and_then(|(a, b)| (a == b).then_some(a).flatten());
+        if inputs_changed && !rows_changed {
+            // A new sort or filter starts from the same scroll position, not from the row that
+            // happened to be at the top.
+            s.rows.keep_position();
+        }
+        s.rows.sync(order.rows);
+        if let Some((start, end)) = selected {
+            let start = start.and_then(|row| s.rows.index_of(row));
+            let end = end.and_then(|row| s.rows.index_of(row));
+            match (start, end) {
+                (Some(a), Some(b)) => s.selected_range.as_mut().unwrap().set_rows(a, b),
+                (Some(a), None) | (None, Some(a)) => {
+                    s.selected_range.as_mut().unwrap().set_rows(a, a)
+                }
+                (None, None) => s.selected_range = None,
+            }
+        }
+        if inputs_changed
+            && let Some(row) = active
+            && s.rows.index_of(row).is_some()
+        {
+            s.rows.reveal_row(row);
+        }
+        s.row_natural = order.natural;
+        s.row_total = order.total;
+        s.order_inputs = Some(inputs);
+        s.order_stale = false;
     }
 
     /// Lays out the header row at `top`. Returns the y coordinate where the body starts.
@@ -775,7 +1057,12 @@ impl TableView {
                 }
                 let col_uid = match slot.key {
                     ColumnKey::Tool => {
-                        cell.add(Label::new(format!("{row_idx}")).selectable(false));
+                        let number = s
+                            .row_natural
+                            .as_ref()
+                            .and_then(|natural| natural.get(&row_uid).copied())
+                            .unwrap_or(row_idx);
+                        cell.add(Label::new(format!("{number}")).selectable(false));
                         tool_cell = Some((slot, cell, cell_bg));
                         continue;
                     }
@@ -872,7 +1159,17 @@ impl TableView {
                 resp.context_menu(|ui| {
                     tool_column::tool_column_row_menu_ui(ui, model, caps, row_uid, &mut s.commands);
                 });
+                if resp.double_clicked() {
+                    s.events.push(TableEvent::RowDoubleClicked {
+                        row: row_uid,
+                        col: None,
+                    });
+                }
                 if resp.clicked() {
+                    s.events.push(TableEvent::RowClicked {
+                        row: row_uid,
+                        col: None,
+                    });
                     // Leaving the cell commits the edit (EDIT-1).
                     if let Some(coord) = s.selected_range.and_then(|r| r.editing()) {
                         commit_edit = Some(coord);
@@ -969,7 +1266,17 @@ impl TableView {
                     painter.hline(cell_rect.x_range(), cell_rect.bottom(), st);
                 }
 
+                if resp.double_clicked() {
+                    s.events.push(TableEvent::RowDoubleClicked {
+                        row: row_uid,
+                        col: Some(col_uid),
+                    });
+                }
                 if resp.clicked_by(PointerButton::Primary) {
+                    s.events.push(TableEvent::RowClicked {
+                        row: row_uid,
+                        col: Some(col_uid),
+                    });
                     if let Some(r) = &mut s.selected_range {
                         if ctx.input(|i| i.modifiers.shift) {
                             r.stretch_to(row_idx, col_idx);
@@ -1024,7 +1331,14 @@ impl TableView {
     }
 
     /// Drag a column's right edge to resize it, double-click it to return to auto width.
-    fn column_resize_handles(&mut self, ui: &mut Ui, grid: &Grid, header: Rangef, full: Rangef) {
+    fn column_resize_handles(
+        &mut self,
+        ui: &mut Ui,
+        config: &mut TableViewConfig,
+        grid: &Grid,
+        header: Rangef,
+        full: Rangef,
+    ) {
         let Grid {
             slots, clip, id, ..
         } = *grid;
@@ -1037,13 +1351,24 @@ impl TableView {
                 full,
             );
             let resp = ui.interact(rect, id.with(("resize", slot.key)), Sense::click_and_drag());
-            if resp.dragged() {
+            if resp.dragged() && resp.drag_delta().x != 0.0 {
                 self.state
                     .column_widths
                     .resize(slot.key, resp.drag_delta().x);
+                if let ColumnKey::Data(col) = slot.key {
+                    config
+                        .column_widths
+                        .insert(col, self.state.column_widths.get(slot.key).width);
+                    self.state.events.push(TableEvent::ConfigChanged);
+                }
             }
             if resp.double_clicked() {
                 self.state.column_widths.reset(slot.key);
+                if let ColumnKey::Data(col) = slot.key
+                    && config.column_widths.remove(&col).is_some()
+                {
+                    self.state.events.push(TableEvent::ConfigChanged);
+                }
             }
             let (stroke, y) = if resp.dragged() {
                 (widgets.active.bg_stroke, full)

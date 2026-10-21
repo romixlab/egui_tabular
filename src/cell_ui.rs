@@ -1,11 +1,13 @@
 //! The egui side of a table: how cells are shown and edited.
 
+use crate::row_order::ColumnFilter;
 use egui::{
     ComboBox, DragValue, Label, Response, RichText, Sense, Stroke, TextEdit, TextWrapMode, Ui,
     Vec2, Widget,
 };
 use rvariant::{Number, Variant, VariantTy};
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use tabular_core::{CellCoord, CellLevel, ColumnUid, RowUid, TableModel, WrapMode};
 
 /// Shows and edits the cells of a model `M`.
@@ -45,7 +47,7 @@ pub trait CellUi<M: TableModel> {
         show_value(model, coord, ui);
     }
 
-    /// Plain text for copy and export, used when the model has no value for the cell.
+    /// Plain text for copy, export and filters, used when the model has no value for the cell.
     fn text(&self, model: &M, coord: CellCoord) -> Option<String> {
         let _ = (model, coord);
         None
@@ -77,6 +79,22 @@ pub trait CellUi<M: TableModel> {
     ) -> EditorResponse {
         let _ = (model, coord);
         edit_value(value, ui)
+    }
+
+    /// Order of rows `a` and `b` by column `col`, ascending; the view reverses it for a
+    /// descending key. For columns the model has no values for, or that sort by something else
+    /// than their value. `None` (the default): the view compares the model's values.
+    fn compare(&self, model: &M, col: ColumnUid, a: RowUid, b: RowUid) -> Option<Ordering> {
+        let _ = (model, col, a, b);
+        None
+    }
+
+    /// Whether the cell passes `filter`. `None` (the default): the view's built-in evaluation of
+    /// the filter kind. [`ColumnFilter::Custom`] filters have no built-in meaning: without this
+    /// hook every row passes them.
+    fn matches(&self, model: &M, coord: CellCoord, filter: &ColumnFilter) -> Option<bool> {
+        let _ = (model, coord, filter);
+        None
     }
 
     /// Extra content in a column header, above the name.

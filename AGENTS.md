@@ -36,7 +36,7 @@ Cargo workspace (edition 2024):
   uid/coord types, cell metadata.
 - `tabular_derive/` — `#[derive(TabularRow)]` proc macro.
 - `src/` — the `egui_tabular` crate: `TableView` (`src/table_view*`), `CellUi` + `VariantCellUi`
-  (`src/cell_ui.rs`), `TableCommand` (`src/commands.rs`), `VariantTable`
+  (`src/cell_ui.rs`), `TableCommand` (`src/commands.rs`), sort + filter (`src/row_order.rs`), `VariantTable`
   (`src/backends/variant.rs`), CSV import (`src/importers/`), utilities (`src/util.rs`).
 - `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` — runnable examples.
 - `tests/ui/` — headless UI tests (egui_kittest), see [UI tests](#ui-tests).

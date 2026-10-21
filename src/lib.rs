@@ -2,6 +2,7 @@ pub mod backends;
 pub mod cell_ui;
 pub mod commands;
 pub mod importers;
+pub mod row_order;
 pub mod table_view;
 mod util;
 
@@ -11,6 +12,7 @@ pub use importers::tabular_importer::TabularImporter;
 pub use backends::variant::{ColumnDef, VariantTable};
 pub use cell_ui::{CellUi, EditorResponse, RowCells, VariantCellUi};
 pub use commands::TableCommand;
+pub use row_order::{ColumnFilter, RowFilter, RowOrderOptions, SortPolicy};
 pub use table_view::{TableEvent, TableView, TableViewConfig, TableViewOptions, TableViewOutput};
 
 pub use egui;
@@ -18,7 +20,7 @@ pub use rvariant;
 pub use tabular_core;
 pub use tabular_core::{
     Capabilities, CellCoord, CellLevel, CellMetadata, ColumnInfo, ColumnUid, ModelError, Revision,
-    Rgb, RowPosition, RowUid, TableModel, WrapMode,
+    Rgb, RowPosition, RowUid, SortDirection, SortKey, TableModel, WrapMode,
 };
 
 pub use tabular_derive::TabularRow;

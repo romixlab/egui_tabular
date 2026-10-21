@@ -1,10 +1,11 @@
 use super::TableEvent;
 use super::layout::{ColumnWidths, RowLayout};
 use crate::commands::TableCommand;
+use crate::row_order::RowFilter;
 use egui::Rect;
 use rvariant::Variant;
 use std::collections::HashMap;
-use tabular_core::{CellCoord, ColumnInfo, ColumnUid, Revision};
+use tabular_core::{CellCoord, ColumnInfo, ColumnUid, Revision, RowUid, SortKey};
 
 pub(super) struct State {
     pub(super) rows: RowLayout,
@@ -13,8 +14,26 @@ pub(super) struct State {
     pub(super) header_height: f32,
     /// Header and body area of the previous frame, for mouse wheel hit testing.
     pub(super) table_rect: Option<Rect>,
+    /// Shown columns in visual order: `TableViewConfig::column_order` applied to the model's
+    /// columns, without hidden ones.
     pub(super) columns_ordered: Vec<ColumnUid>,
+    /// The model's columns in natural order.
+    pub(super) natural_columns: Vec<ColumnUid>,
     pub(super) columns: HashMap<ColumnUid, ColumnInfo>,
+    /// Natural position of each shown row, `None` when the display order is the natural one.
+    pub(super) row_natural: Option<HashMap<RowUid, usize>>,
+    /// Rows in the model, shown or not.
+    pub(super) row_total: usize,
+    /// Sort and filter the row order was last computed with.
+    pub(super) order_inputs: Option<OrderInputs>,
+    /// `revision.cells` right after this view applied its own commands.
+    pub(super) own_cells: Option<u64>,
+    /// Recompute the row order on the next sync.
+    pub(super) refresh_rows: bool,
+    /// Values changed since the row order was computed, under `SortPolicy::OnDemand`.
+    pub(super) order_stale: bool,
+    /// Programmatic control, applied at the start of the next `show`.
+    pub(super) requests: Vec<Request>,
     pub(super) selected_range: Option<SelectedRange>,
     /// Value of the cell being edited, owned by the view until committed or cancelled.
     pub(super) edit: Option<EditBuffer>,
@@ -41,7 +60,15 @@ impl Default for State {
             header_height: 20.0,
             table_rect: None,
             columns_ordered: Vec::new(),
+            natural_columns: Vec::new(),
             columns: Default::default(),
+            row_natural: None,
+            row_total: 0,
+            order_inputs: None,
+            own_cells: None,
+            refresh_rows: false,
+            order_stale: false,
+            requests: vec![],
             selected_range: None,
             edit: None,
             revision: None,
@@ -56,6 +83,22 @@ impl Default for State {
             create_adhoc_cols_on_paste: false,
         }
     }
+}
+
+/// What the row order depends on besides the model.
+#[derive(Clone, PartialEq)]
+pub(super) struct OrderInputs {
+    pub(super) sort: Vec<SortKey>,
+    pub(super) filter: RowFilter,
+    /// Columns the quick filter looks at; empty while it is off.
+    pub(super) quick_columns: Vec<ColumnUid>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(super) enum Request {
+    SelectRow(RowUid),
+    ClearSelection,
+    ScrollToRow(RowUid),
 }
 
 pub(super) struct EditBuffer {
@@ -113,6 +156,13 @@ impl SelectedRange {
             col_end: width.saturating_sub(1),
             editing: None,
         }
+    }
+
+    /// Move the selected rows to `start..=end` (display indices), e.g. after the row order
+    /// changed.
+    pub fn set_rows(&mut self, start: usize, end: usize) {
+        self.row_start = start.min(end);
+        self.row_end = start.max(end);
     }
 
     pub fn row_start(&self) -> usize {

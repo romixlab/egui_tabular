@@ -9,5 +9,6 @@ mod editing;
 mod fixture;
 mod keyboard;
 mod model;
+mod order;
 mod paste;
 mod selection;

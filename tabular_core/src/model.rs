@@ -2,6 +2,7 @@
 
 use crate::{CellCoord, ColumnUid, RowUid};
 use rvariant::{Variant, VariantTy};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
@@ -266,6 +267,54 @@ pub trait TableModel {
     fn skip_column(&mut self, col: ColumnUid, skipped: bool) -> Result<(), ModelError> {
         let _ = (col, skipped);
         Err(ModelError::Unsupported)
+    }
+
+    /// Delegated sorting: all rows ordered by `keys` (first key = primary), e.g. by a database's
+    /// `ORDER BY`. `None` (the default) lets the view sort locally by [`get`](Self::get).
+    /// The view filters the returned order itself and calls this only while a sort is active.
+    fn sorted_rows(&self, keys: &[SortKey]) -> Option<Vec<RowUid>> {
+        let _ = keys;
+        None
+    }
+}
+
+/// Direction of one [`SortKey`].
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SortDirection {
+    #[default]
+    Ascending,
+    Descending,
+}
+
+impl SortDirection {
+    pub fn reversed(self) -> Self {
+        match self {
+            SortDirection::Ascending => SortDirection::Descending,
+            SortDirection::Descending => SortDirection::Ascending,
+        }
+    }
+}
+
+/// Sort rows by one column. A sort is a list of keys, the first one is the primary key.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SortKey {
+    pub col: ColumnUid,
+    pub direction: SortDirection,
+}
+
+impl SortKey {
+    pub fn ascending(col: ColumnUid) -> Self {
+        SortKey {
+            col,
+            direction: SortDirection::Ascending,
+        }
+    }
+
+    pub fn descending(col: ColumnUid) -> Self {
+        SortKey {
+            col,
+            direction: SortDirection::Descending,
+        }
     }
 }
 

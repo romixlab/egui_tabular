@@ -167,6 +167,31 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
         headers.into_iter().map(|(_, name)| name).collect()
     }
 
+    /// Labels from `texts` that are shown, top to bottom: the visible row order of those cells.
+    pub fn top_down(&self, texts: &[&str]) -> Vec<String> {
+        let mut shown: Vec<_> = texts
+            .iter()
+            .filter_map(|t| {
+                self.h
+                    .query_by_label(t)
+                    .map(|n| (n.rect().min.y, t.to_string()))
+            })
+            .collect();
+        shown.sort_by(|a, b| a.0.total_cmp(&b.0));
+        shown.into_iter().map(|(_, t)| t).collect()
+    }
+
+    /// Change the view config the way an app does between frames, and run.
+    pub fn config(&mut self, change: impl FnOnce(&mut TableViewConfig)) {
+        change(&mut self.h.state_mut().config);
+        self.h.run();
+    }
+
+    /// Whether the view reported an event matching `f`.
+    pub fn saw(&self, f: impl Fn(&TableEvent) -> bool) -> bool {
+        self.h.state().events.iter().any(f)
+    }
+
     /// x of the right edge (resize handle) of data column `col`, from the next header's position.
     pub fn column_right_edge(&self, col: usize) -> f32 {
         self.node(&col_name(col + 1)).rect().min.x - PAD_X
