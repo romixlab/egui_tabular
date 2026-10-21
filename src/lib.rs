@@ -10,7 +10,7 @@ pub use importers::required_column::{RequiredColumn, RequiredColumns};
 pub use importers::tabular_importer::TabularImporter;
 
 pub use backends::variant::{ColumnDef, VariantTable};
-pub use cell_ui::{CellUi, DateCellUi, DateFormats, EditorResponse, RowCells, VariantCellUi};
+pub use cell_ui::{CellFormats, CellUi, EditorResponse, FormattedCellUi, RowCells, VariantCellUi};
 pub use commands::TableCommand;
 pub use row_order::{ColumnFilter, RowFilter, RowOrderOptions, SortPolicy, click_sort};
 pub use table_view::{

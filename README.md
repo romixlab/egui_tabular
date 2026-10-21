@@ -26,7 +26,7 @@ TODO: Add web demo.
 * [x] Cell values don't have to be in memory (if the model supports it); the view keeps one id per row.
 * [x] Sorting by several columns: click the sort arrows in a header, Shift+click adds a key (`TableViewConfig::sort`).
 * [x] Filtering: quick filter over all columns and per-column filters (`TableViewConfig::filter`), hide columns and a column chooser; sort, filter and hidden columns are saved with the view config.
-* [x] Date, time and date-time cells (`DateCellUi`).
+* [x] Date, time and date-time cells (`FormattedCellUi`).
 * [x] Keyboard shortcuts and navigation.
 * [x] Copy-paste support for cells and blocks of cells.
 * [x] Ability to add lints to cells and change their background color.

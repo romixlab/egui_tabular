@@ -1,7 +1,7 @@
 use egui_tabular::rvariant::{Number, NumberTy, Variant, VariantTy};
 use egui_tabular::{
-    CellCoord, ColumnDef, ColumnFilter, ColumnUid, DateCellUi, TableEvent, TableModel, TableView,
-    TableViewConfig, TableViewOptions, VariantTable,
+    CellCoord, ColumnDef, ColumnFilter, ColumnUid, FormattedCellUi, TableEvent, TableModel,
+    TableView, TableViewConfig, TableViewOptions, VariantTable,
 };
 use std::collections::BTreeSet;
 
@@ -16,7 +16,7 @@ const CONFIG_KEY: &str = "table_view_config";
 struct SimpleApp {
     table: VariantTable,
     viewer: TableView,
-    cell_ui: DateCellUi,
+    cell_ui: FormattedCellUi,
     config: TableViewConfig,
     detail_open: bool,
 }
@@ -138,7 +138,7 @@ impl Default for SimpleApp {
         Self {
             table,
             viewer: TableView::new(TableViewOptions::default()),
-            cell_ui: DateCellUi::default(),
+            cell_ui: FormattedCellUi::default(),
             config: Default::default(),
             detail_open: false,
         }

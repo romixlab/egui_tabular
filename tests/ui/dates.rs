@@ -6,26 +6,26 @@ use chrono::NaiveDate;
 use egui::Key;
 use egui_tabular::rvariant::{Variant, VariantTy};
 use egui_tabular::{
-    ColumnDef, ColumnFilter, ColumnUid, DateCellUi, DateFormats, RowUid, SortKey, VariantTable,
+    CellFormats, ColumnDef, ColumnFilter, ColumnUid, FormattedCellUi, RowUid, SortKey, VariantTable,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()
 }
 
-fn table(days: &[NaiveDate], formats: DateFormats) -> Table<VariantTable, DateCellUi> {
+fn table(days: &[NaiveDate], formats: CellFormats) -> Table<VariantTable, FormattedCellUi> {
     let mut model = VariantTable::new([ColumnDef::new("D", VariantTy::Date)]);
     for d in days {
         model.insert_row([(ColumnUid(0), Variant::Date(*d))]);
     }
-    Table::custom(model, DateCellUi { formats })
+    Table::custom(model, FormattedCellUi { formats })
 }
 
-fn german() -> DateFormats {
-    DateFormats {
+fn german() -> CellFormats {
+    CellFormats {
         date: "%d.%m.%Y".into(),
         today: Some(date(2026, 10, 21)),
-        ..DateFormats::default()
+        ..CellFormats::default()
     }
 }
 
@@ -37,7 +37,7 @@ fn date_uses_the_format() {
 
 #[test]
 fn relative_days_show_days_from_today() {
-    let formats = DateFormats {
+    let formats = CellFormats {
         relative_days: true,
         ..german()
     };
@@ -70,7 +70,7 @@ fn editor_keeps_the_old_date_on_invalid_text() {
 
 #[test]
 fn editor_accepts_relative_days() {
-    let formats = DateFormats {
+    let formats = CellFormats {
         relative_days: true,
         ..german()
     };
@@ -95,7 +95,7 @@ fn view_sorts_mixed_dates_and_date_times_by_time() {
     ] {
         model.insert_row([(ColumnUid(0), v)]);
     }
-    let mut t = Table::custom(model, DateCellUi::default());
+    let mut t = Table::custom(model, FormattedCellUi::default());
     t.config(|c| c.sort = vec![SortKey::ascending(ColumnUid(0))]);
     assert_eq!(
         t.h.state().view.visible_rows(),
@@ -106,7 +106,7 @@ fn view_sorts_mixed_dates_and_date_times_by_time() {
 #[test]
 fn range_filter_on_dates_includes_both_ends() {
     let days = [17, 18, 21, 22].map(|d| date(2026, 10, d));
-    let mut t = table(&days, DateFormats::default());
+    let mut t = table(&days, CellFormats::default());
     t.config(|c| {
         c.filter.columns.insert(
             ColumnUid(0),
@@ -117,4 +117,19 @@ fn range_filter_on_dates_includes_both_ends() {
         );
     });
     assert_eq!(t.h.state().view.visible_rows(), [RowUid(1), RowUid(2)]);
+}
+
+#[test]
+fn string_lists_show_inline_with_a_separator() {
+    let mut model = VariantTable::new([ColumnDef::new("L", VariantTy::StrList)]);
+    model.insert_row([(
+        ColumnUid(0),
+        Variant::StrList(vec!["hw".into(), "fw".into()]),
+    )]);
+    let formats = CellFormats {
+        list_separator: Some(", ".into()),
+        ..Default::default()
+    };
+    let t = Table::custom(model, FormattedCellUi { formats });
+    assert!(t.has("hw, fw"));
 }

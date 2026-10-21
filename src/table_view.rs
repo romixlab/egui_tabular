@@ -133,6 +133,8 @@ pub struct TableViewOptions {
     pub row_order: RowOrderOptions,
     /// The sort control in column headers.
     pub sort_indicator: SortIndicatorOptions,
+    /// Show each column's type (`ColumnInfo::type_text`) under its name. Default: true.
+    pub header_types: bool,
 }
 
 /// The sort control at the right edge of sortable column headers (SORT-2): click sorts by the
@@ -172,6 +174,7 @@ impl Default for TableViewOptions {
             column_mapping_choices: vec![],
             row_order: RowOrderOptions::default(),
             sort_indicator: SortIndicatorOptions::default(),
+            header_types: true,
         }
     }
 }
@@ -917,7 +920,7 @@ impl TableView {
                             .on_hover_ui(|ui| {
                                 Self::column_name_hover_ui(column, ui);
                             });
-                        if let Some(ty) = column.type_text() {
+                        if let Some(ty) = column.type_text().filter(|_| self.options.header_types) {
                             ui.add(Label::new(ty.as_ref()).wrap_mode(TextWrapMode::Extend));
                         }
                     }

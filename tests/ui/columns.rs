@@ -1,4 +1,5 @@
 use crate::fixture::{Table, col_name};
+use egui_kittest::kittest::Queryable;
 use egui_tabular::{ColumnUid, TableEvent};
 
 #[test]
@@ -93,4 +94,13 @@ fn column_chooser_shows_hidden_columns_again() {
     // Unchecking hides again.
     t.click_checkbox("A");
     assert_eq!(t.header_order(), ["B", "C"]);
+}
+
+#[test]
+fn header_types_can_be_hidden() {
+    let mut t = crate::fixture::Table::grid(2, 1);
+    assert!(t.h.query_all_by_label("String").count() > 0);
+    t.h.state_mut().view.options_mut().header_types = false;
+    t.h.run();
+    assert_eq!(t.h.query_all_by_label("String").count(), 0);
 }

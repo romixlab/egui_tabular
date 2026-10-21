@@ -114,7 +114,7 @@ pub struct EditorResponse {
 
 /// Shows and edits any model's `Variant` values with the built-in viewers and editors.
 ///
-/// Dates, times and date-times use the default [`DateFormats`]; [`DateCellUi`] sets your own.
+/// Uses the default [`CellFormats`]; [`FormattedCellUi`] sets your own.
 pub struct VariantCellUi;
 
 impl<M: TableModel> CellUi<M> for VariantCellUi {}
@@ -188,7 +188,7 @@ impl<'a> RowCells<'a> {
 
 /// Built-in viewer: shows the model's value of a cell.
 pub fn show_value<M: TableModel>(model: &M, coord: CellCoord, ui: &mut Ui) {
-    show_value_with(model, coord, ui, &DateFormats::default());
+    show_value_with(model, coord, ui, &CellFormats::default());
 }
 
 /// [`show_value`] with custom date, time and date-time formats.
@@ -196,7 +196,7 @@ pub fn show_value_with<M: TableModel>(
     model: &M,
     coord: CellCoord,
     ui: &mut Ui,
-    formats: &DateFormats,
+    formats: &CellFormats,
 ) {
     let Some(value) = model.get(coord) else {
         return;
@@ -222,14 +222,19 @@ pub fn show_value_with<M: TableModel>(
         Variant::Str(v) => {
             ui.add(label(Cow::Borrowed(v)));
         }
-        Variant::StrList(list) => {
-            for (idx, v) in list.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.monospace(format!("{idx}:"));
-                    ui.add(label(Cow::Borrowed(v)));
-                });
+        Variant::StrList(list) => match &formats.list_separator {
+            Some(separator) => {
+                ui.add(label(Cow::Owned(list.join(separator))));
             }
-        }
+            None => {
+                for (idx, v) in list.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.monospace(format!("{idx}:"));
+                        ui.add(label(Cow::Borrowed(v)));
+                    });
+                }
+            }
+        },
         v @ (Variant::Date(_) | Variant::Time(_) | Variant::DateTime(_)) => {
             let response = ui.add(label(Cow::Owned(formats.display(v))));
             if formats.relative_days {
@@ -270,11 +275,11 @@ fn check_mark(ui: &mut Ui, checked: bool) {
 
 /// Built-in editor for a `Variant` value.
 pub fn edit_value(value: &mut Variant, ui: &mut Ui) -> EditorResponse {
-    edit_value_with(value, ui, &DateFormats::default())
+    edit_value_with(value, ui, &CellFormats::default())
 }
 
 /// [`edit_value`] with custom date, time and date-time formats.
-pub fn edit_value_with(value: &mut Variant, ui: &mut Ui, formats: &DateFormats) -> EditorResponse {
+pub fn edit_value_with(value: &mut Variant, ui: &mut Ui, formats: &CellFormats) -> EditorResponse {
     const INT_DRAG_SPEED: f32 = 0.1;
     let (response, commit) = match value {
         Variant::Bool(v) => {
@@ -328,13 +333,13 @@ pub fn edit_value_with(value: &mut Variant, ui: &mut Ui, formats: &DateFormats) 
     EditorResponse { response, commit }
 }
 
-/// Like [`VariantCellUi`], with your own [`DateFormats`] for `Date`, `Time` and `DateTime` cells.
+/// Like [`VariantCellUi`], with your own [`CellFormats`] (dates, times, lists).
 #[derive(Clone, Debug, Default)]
-pub struct DateCellUi {
-    pub formats: DateFormats,
+pub struct FormattedCellUi {
+    pub formats: CellFormats,
 }
 
-impl<M: TableModel> CellUi<M> for DateCellUi {
+impl<M: TableModel> CellUi<M> for FormattedCellUi {
     fn show_cell(&mut self, model: &mut M, coord: CellCoord, ui: &mut Ui) {
         show_value_with(model, coord, ui, &self.formats);
     }
@@ -351,12 +356,12 @@ impl<M: TableModel> CellUi<M> for DateCellUi {
     }
 }
 
-/// How `Date`, `Time` and `DateTime` values are shown, and the text the editor parses.
+/// How dates, times, date-times and string lists are shown, and the text the date editor parses.
 ///
 /// Format strings are [chrono `strftime`](https://docs.rs/chrono/latest/chrono/format/strftime/)
 /// patterns. The editor accepts the configured format first, then ISO 8601.
 #[derive(Clone, Debug)]
-pub struct DateFormats {
+pub struct CellFormats {
     /// Format of `Date` values, `%Y-%m-%d` by default.
     pub date: String,
     /// Format of `Time` values, `%H:%M:%S` by default.
@@ -369,21 +374,25 @@ pub struct DateFormats {
     pub relative_days: bool,
     /// What "today" is for `relative_days`; `None` is the local date. Set it for tests.
     pub today: Option<NaiveDate>,
+    /// Show `StrList` values on one line, items joined by this text (e.g. ", "). `None`
+    /// (the default): one numbered line per item.
+    pub list_separator: Option<String>,
 }
 
-impl Default for DateFormats {
+impl Default for CellFormats {
     fn default() -> Self {
-        DateFormats {
+        CellFormats {
             date: "%Y-%m-%d".into(),
             time: "%H:%M:%S".into(),
             datetime: "%Y-%m-%d %H:%M:%S".into(),
             relative_days: false,
             today: None,
+            list_separator: None,
         }
     }
 }
 
-impl DateFormats {
+impl CellFormats {
     fn today(&self) -> NaiveDate {
         self.today.unwrap_or_else(|| Local::now().date_naive())
     }
@@ -500,7 +509,7 @@ fn parse_relative_days(text: &str) -> Option<i64> {
 /// Text editor for date, time and date-time values. The text is parsed as it is typed: a valid
 /// text updates `value`, an invalid one is outlined in red and leaves `value` as it was, so a
 /// commit keeps the last valid date.
-fn edit_date(value: &mut Variant, ui: &mut Ui, formats: &DateFormats) -> Response {
+fn edit_date(value: &mut Variant, ui: &mut Ui, formats: &CellFormats) -> Response {
     // (text, formatted value when the text was last in sync)
     type Buffer = (String, String);
     let id = ui.id().with("_egui_tabular_date_edit");
