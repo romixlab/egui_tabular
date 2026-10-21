@@ -2,12 +2,19 @@
 
 Guidance for AI agents and contributors. Read this before changing code.
 
-## Branch `v0.3.0` is under heavy development
+## main (the 0.3 line) is under heavy development
 
 Breaking changes are not just accepted here, they are preferred whenever they lead to a better
 design. Don't add compatibility shims, deprecation paths or adapters for the old API, and don't
 keep an awkward structure only to avoid breaking callers. Every known downstream user will be
 ported. If a cleaner design needs an API break, make the break and record it in FEATURES.md.
+
+## Versions and the changelog
+
+The version in `Cargo.toml` is the next crates.io release (`bump = "at-publish"` in tpm's repos.toml).
+Work commits and landings never change it and never tag: their CHANGELOG entries go under
+`[Unreleased]`, a breaking change says so (`**Breaking:** ...`). `tpm release egui_tabular` turns
+`[Unreleased]` into the version's section and tags it, right before publishing.
 
 ## FEATURES.md is the source of truth
 
