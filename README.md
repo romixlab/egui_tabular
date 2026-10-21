@@ -16,15 +16,17 @@ TODO: Add web demo.
   A row is looked up once and its cells filled by column, values (`Variant`) are optional.
 * [x] Built-in cell viewers and editors ([VariantCellUi](src/cell_ui.rs)) and an in-memory [VariantTable](src/backends/variant.rs):
     * [x] String, string list, numbers, booleans, custom enums
-    * [ ] Date, SI values, currency
+    * [x] Date, time, date-time
+    * [ ] SI values, currency
 * [x] Data import with automatic column mapping based on names.
     * [x] CSV support.
     * [ ] XLS support.
 * [x] Manual column mapping to one of the choices provided by the backend (combo box above columns).
 * [ ] Undo / Redo support.
 * [x] Cell values don't have to be in memory (if the model supports it); the view keeps one id per row.
-* [ ] Support for sorting.
-* [ ] Support for filtering based on custom user ui from the TableBackend trait.
+* [x] Sorting by several columns: click the sort arrows in a header, Shift+click adds a key (`TableViewConfig::sort`).
+* [x] Filtering: quick filter over all columns and per-column filters (`TableViewConfig::filter`), hide columns and a column chooser; sort, filter and hidden columns are saved with the view config.
+* [x] Date, time and date-time cells (`DateCellUi`).
 * [x] Keyboard shortcuts and navigation.
 * [x] Copy-paste support for cells and blocks of cells.
 * [x] Ability to add lints to cells and change their background color.
@@ -80,6 +82,8 @@ See `demos/` and `#[derive(TabularRow)]`.
     * +Shift - expand selection
 * N - append new row and scroll to it
 * Shift + click - expand selection
+* Click sort arrows in a column header - sort ascending, descending, off
+* Shift + click sort arrows - add the column as the next sort key
 * Drag column edge - resize, double-click it - back to auto width
 
 ## Project status
