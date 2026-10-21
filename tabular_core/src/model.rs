@@ -86,6 +86,8 @@ pub struct ColumnInfo {
     pub ty: Option<VariantTy>,
     /// Shown in the header instead of `ty`, e.g. "u8 (CAN DLC)".
     pub type_label: Option<String>,
+    /// Offer sorting by this column (true by default). The view sorts by `TableModel::get`
+    /// values or the cell UI's `compare`; turn it off for columns with neither.
     pub is_sortable: bool,
     pub is_required: bool,
     pub is_used: bool,
@@ -99,7 +101,7 @@ impl ColumnInfo {
             synonyms: vec![],
             ty,
             type_label: None,
-            is_sortable: false,
+            is_sortable: true,
             is_required: false,
             is_used: true,
             is_skipped: false,

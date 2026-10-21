@@ -22,3 +22,8 @@ Cargo.lock
 
 # IDE
 .idea/
+
+# egui_kittest snapshot outputs of failed runs
+tests/snapshots/*.new.png
+tests/snapshots/*.diff.png
+tests/snapshots/*.old.png

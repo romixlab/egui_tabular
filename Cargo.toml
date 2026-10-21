@@ -44,5 +44,5 @@ tabular_derive = { workspace = true }
 tap = "1.0"
 
 [dev-dependencies]
-egui_kittest = "0.36"
+egui_kittest = { version = "0.36", features = ["snapshot", "wgpu"] }
 serde_json = "1"

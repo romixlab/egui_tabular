@@ -13,3 +13,4 @@ mod model;
 mod order;
 mod paste;
 mod selection;
+mod sorting;

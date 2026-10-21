@@ -15,14 +15,14 @@ use egui::emath::GuiRounding;
 use egui::epaint::{PathShape, PathStroke};
 use egui::scroll_area::ScrollSource;
 use egui::{
-    Align, Color32, CornerRadius, CursorIcon, Id, Key, Label, Layout, PointerButton, PopupAnchor,
-    Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke, TextWrapMode,
-    Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
+    Align, Align2, Color32, CornerRadius, CursorIcon, Id, Key, Label, Layout, PointerButton,
+    PopupAnchor, Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke,
+    TextWrapMode, Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
 };
 use std::collections::{HashMap, HashSet};
 use tabular_core::{
     Capabilities, CellCoord, CellLevel, ColumnInfo, ColumnUid, ModelError, Revision, RowPosition,
-    RowUid, TableModel,
+    RowUid, SortDirection, SortKey, TableModel,
 };
 use tap::Tap;
 
@@ -131,6 +131,35 @@ pub struct TableViewOptions {
     pub column_mapping_choices: Vec<String>,
     /// How rows are filtered and sorted.
     pub row_order: RowOrderOptions,
+    /// The sort control in column headers.
+    pub sort_indicator: SortIndicatorOptions,
+}
+
+/// The sort control at the right edge of sortable column headers (SORT-2): click sorts by the
+/// column (ascending, descending, off), Shift+click adds it as another key.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SortIndicatorOptions {
+    /// Width of the control. 0 hides it; the header menu still sorts. Default: 14.
+    pub width: f32,
+    /// Size of the arrow. Default: 7.
+    pub arrow_size: f32,
+    /// Show a dim control on sortable columns that aren't sorted, so users see they can sort.
+    /// Default: true.
+    pub show_unsorted: bool,
+    /// Show each key's position (1, 2, ...) next to its arrow when sorting by several columns.
+    /// Default: true.
+    pub show_priority: bool,
+}
+
+impl Default for SortIndicatorOptions {
+    fn default() -> Self {
+        SortIndicatorOptions {
+            width: 14.0,
+            arrow_size: 7.0,
+            show_unsorted: true,
+            show_priority: true,
+        }
+    }
 }
 
 impl Default for TableViewOptions {
@@ -142,6 +171,7 @@ impl Default for TableViewOptions {
             read_only: false,
             column_mapping_choices: vec![],
             row_order: RowOrderOptions::default(),
+            sort_indicator: SortIndicatorOptions::default(),
         }
     }
 }
@@ -910,9 +940,16 @@ impl TableView {
         let y_range = Rangef::new(top, top + height);
 
         for (slot, cell) in slots.iter().zip(cells) {
-            self.state
-                .column_widths
-                .observe(slot.key, cell.min_rect().width() + 2.0 * pad.x);
+            let indicator_width = match slot.key {
+                ColumnKey::Data(col) if self.has_sort_indicator(col) => {
+                    self.options.sort_indicator.width
+                }
+                _ => 0.0,
+            };
+            self.state.column_widths.observe(
+                slot.key,
+                cell.min_rect().width() + 2.0 * pad.x + indicator_width,
+            );
             let resp = finish_cell(cell, slot.rect(y_range));
             let column_uid = match slot.key {
                 ColumnKey::Tool => {
@@ -966,7 +1003,28 @@ impl TableView {
                 *swap_columns = Some((column_uid, *payload));
             }
 
-            Self::column_context_menu(column, column_uid, resp, caps, &mut self.state.commands);
+            let mut sort_changed = Self::column_context_menu(
+                column,
+                column_uid,
+                resp,
+                caps,
+                &mut self.state.commands,
+                &mut config.sort,
+            );
+            if indicator_width > 0.0 {
+                let rect = Rect::from_x_y_ranges(
+                    slot.x + slot.width - RESIZE_HANDLE_HALF_WIDTH - indicator_width
+                        ..=slot.x + slot.width - RESIZE_HANDLE_HALF_WIDTH,
+                    y_range,
+                );
+                let name = column.name.clone();
+                sort_changed |=
+                    self.sort_indicator(ui, &painter, id, rect, column_uid, &name, config);
+            }
+            if sort_changed {
+                self.state.events.push(TableEvent::SortChanged);
+                self.state.events.push(TableEvent::ConfigChanged);
+            }
         }
 
         painter.hline(
@@ -1398,21 +1456,129 @@ impl TableView {
         p.line_segment([rect.left_center(), rect.right_center()], stroke);
     }
 
+    fn has_sort_indicator(&self, col: ColumnUid) -> bool {
+        self.options.sort_indicator.width > 0.0
+            && self.state.columns.get(&col).is_some_and(|c| c.is_sortable)
+    }
+
+    /// Draw the sort control of column `col` in `rect` and handle clicks on it. Returns true if
+    /// `config.sort` changed.
+    #[allow(clippy::too_many_arguments)]
+    fn sort_indicator(
+        &mut self,
+        ui: &mut Ui,
+        painter: &egui::Painter,
+        id: Id,
+        rect: Rect,
+        col: ColumnUid,
+        name: &str,
+        config: &mut TableViewConfig,
+    ) -> bool {
+        let options = &self.options.sort_indicator;
+        let position = config.sort.iter().position(|k| k.col == col);
+        let stale = position.is_some() && self.state.order_stale;
+        let resp = ui
+            .interact(rect, id.with(("sort", col)), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
+        resp.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Sort by {name}"))
+        });
+        let visuals = ui.visuals();
+        let color = if stale {
+            visuals.warn_fg_color
+        } else if position.is_some() || resp.hovered() {
+            visuals.strong_text_color()
+        } else {
+            visuals.weak_text_color()
+        };
+        let size = options.arrow_size;
+        let center = rect.center();
+        let arrow = |up: bool, center: Pos2, size: f32| {
+            let dy = if up { -size * 0.5 } else { size * 0.5 };
+            PathShape::convex_polygon(
+                vec![
+                    Pos2::new(center.x, center.y + dy),
+                    Pos2::new(center.x + size * 0.5, center.y - dy),
+                    Pos2::new(center.x - size * 0.5, center.y - dy),
+                ],
+                color,
+                Stroke::NONE,
+            )
+        };
+        match position.map(|i| (i, config.sort[i].direction)) {
+            Some((i, direction)) => {
+                let numbered = options.show_priority && config.sort.len() > 1;
+                // With a key number the arrow moves left to make room for it.
+                let at = if numbered {
+                    Pos2::new(rect.left() + size * 0.5, center.y)
+                } else {
+                    center
+                };
+                painter.add(arrow(direction == SortDirection::Ascending, at, size));
+                if numbered {
+                    painter.text(
+                        Pos2::new(rect.right(), center.y + size * 0.5),
+                        Align2::RIGHT_BOTTOM,
+                        format!("{}", i + 1),
+                        egui::TextStyle::Small.resolve(ui.style()),
+                        color,
+                    );
+                }
+            }
+            None if options.show_unsorted || resp.hovered() => {
+                // Two small arrows, up and down: "sortable, not sorted".
+                let small = size * 0.6;
+                let gap = small * 0.4;
+                painter.add(arrow(true, center - Vec2::new(0.0, gap), small));
+                painter.add(arrow(false, center + Vec2::new(0.0, gap), small));
+            }
+            None => {}
+        }
+        let hover = if stale {
+            "Values changed since the rows were sorted. Click to sort again."
+        } else {
+            "Click to sort by this column. Shift+click to add it as another sort key."
+        };
+        let resp = resp.on_hover_text(hover);
+        if !resp.clicked() {
+            return false;
+        }
+        if stale {
+            self.state.refresh_rows = true;
+            return false;
+        }
+        let add = ui.input(|i| i.modifiers.shift);
+        row_order::click_sort(&mut config.sort, col, add)
+    }
+
+    /// The header's context menu. Returns true if it changed `sort`.
     fn column_context_menu(
         col: &ColumnInfo,
         col_uid: ColumnUid,
         resp: Response,
         caps: Capabilities,
         commands: &mut Vec<TableCommand>,
-    ) {
+        sort: &mut Vec<SortKey>,
+    ) -> bool {
+        let mut sort_changed = false;
         resp.context_menu(|ui| {
-            if col.is_sortable {
-                if ui.button("Sort ascending").clicked() {
+            for (text, key) in [
+                ("Sort ascending", SortKey::ascending(col_uid)),
+                ("Sort descending", SortKey::descending(col_uid)),
+            ] {
+                let button = ui
+                    .add_enabled(col.is_sortable, egui::Button::new(text))
+                    .on_disabled_hover_text("This column can't be sorted");
+                if button.clicked() {
+                    sort_changed |= *sort != [key];
+                    *sort = vec![key];
                     ui.close_kind(UiKind::Menu);
                 }
-                if ui.button("Sort descending").clicked() {
-                    ui.close_kind(UiKind::Menu);
-                }
+            }
+            if !sort.is_empty() && ui.button("Clear sort").clicked() {
+                sort.clear();
+                sort_changed = true;
+                ui.close_kind(UiKind::Menu);
             }
             if caps.create_columns && ui.button("Add column").clicked() {
                 commands.push(TableCommand::CreateColumn);
@@ -1432,6 +1598,7 @@ impl TableView {
                 }
             }
         });
+        sort_changed
     }
 
     fn column_name_hover_ui(col: &ColumnInfo, ui: &mut Ui) {

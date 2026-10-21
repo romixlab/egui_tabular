@@ -158,7 +158,7 @@ selection, the edit buffer, and paste state. It changes the model only through q
 | Remote/lazy models | 💡 idea | Delegated sorting is there: `TableModel::sorted_rows(keys)` returns the order (e.g. SQL `ORDER BY`), the view still filters it (SORT-1). Lazy loading of rows is not. |
 | Column "used" vs "available" | ✅ done | `ColumnInfo::is_used`, informational (shown in the header hover). The view shows all columns. |
 | Undo / redo | 🚧 partial | Every `TableCommand::apply` returns its inverse (unit-tested); no undo stack or UI yet (roadmap step 5). |
-| Sorting | 🚧 partial | SORT-1: `TableViewConfig::sort` (multi-key `SortKey`s), stable, by `get()` values (numbers by value, text case-insensitive, empties last, each a `RowOrderOptions` field), `CellUi::compare` for custom columns, `TableModel::sorted_rows` delegation, `SortPolicy`. The selection follows its rows. No header UI yet: indicator, click and menu come with SORT-2 ([DESIGN-13](#design-13-sort-and-filter-stability-and-ui)); the menu items are still stubs ([VIEW-5](#view-5)). |
+| Sorting | ✅ done | SORT-1: `TableViewConfig::sort` (multi-key `SortKey`s), stable, by `get()` values (numbers by value, text case-insensitive, empties last, each a `RowOrderOptions` field), `CellUi::compare` for custom columns, `TableModel::sorted_rows` delegation, `SortPolicy`. The selection follows its rows. Header sort control and menu: SORT-2. `ColumnInfo::is_sortable` defaults to true. |
 | Filtering | 🚧 partial | FILTER-1: `TableViewConfig::filter` = `RowFilter { quick, columns }`. Quick filter: whitespace-separated terms, each must appear in some shown column's text. Column filters: `ColumnFilter::{Contains, OneOf, Range, Empty, Custom}`, evaluated over `get()`/`CellUi::text()` or by the app's `CellUi::matches`. `TableView::row_counts()` for "N of M rows". No filter UI in the view yet (find bar and header filter popups, [DESIGN-13](#design-13-sort-and-filter-stability-and-ui)). |
 | Typed column type (`VariantTy`, or none for custom columns) | ✅ done | `ColumnInfo::ty: Option<VariantTy>` + `type_label`. Picks the editor for empty cells. |
 | Rename columns | 📋 planned | Model method, capability and command come with the UI (roadmap step 5). |
@@ -216,7 +216,8 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Resizable columns | ✅ done | Drag the right edge of a column; double-click it to return to auto width. Resized widths are saved in `TableViewConfig::column_widths` (VIEW-12); a saved width removed by the app returns the column to auto width. |
 | Auto-sized columns | ✅ done | Grow to fit the widest header/cell seen, up to 400 px; never shrink on their own. Double-click on the edge re-fits to the header and visible rows (may shrink). Width changes are eased. |
 | Column header: name, type, hover info (required/synonyms/used) | ✅ done | |
-| Column header context menu | 🚧 partial | "Skip" and "Add column" work (offered per capabilities). "Sort", "Hide" are stubs ([VIEW-5](#view-5)). |
+| Column header context menu | 🚧 partial | "Sort ascending/descending", "Clear sort" (SORT-2; disabled with a hover reason on unsortable columns), "Skip" and "Add column" work (offered per capabilities). "Hide" is a stub ([VIEW-5](#view-5)). |
+| Sort control in column headers | ✅ done | SORT-2: arrows at the right edge of sortable headers (dim up/down pair when unsorted), click cycles ascending → descending → off, Shift+click adds a key, key numbers when sorting by several columns. Under `SortPolicy::OnDemand` a stale order shows the control in the warning color and a click re-sorts. Tunables in `TableViewOptions::sort_indicator` (`SortIndicatorOptions`). AccessKit button "Sort by NAME". Pixel snapshot `sorting::sort_controls_snapshot`. |
 | Column drag & drop reorder | 🐛 buggy | Swaps instead of moves; selection and order persistence broken ([DND-*](#column-drag--drop)). Reports `TableEvent::ColumnsReordered`. |
 | Tool column (row numbers, row context menu: append, skip) | ✅ done | `TableViewOptions::tool_column` hides it. |
 | Tool column header menu: Export CSV, Append row, Clear | 🐛 buggy | "Clear" has no confirmation ([VIEW-6](#view-6)). |
@@ -342,6 +343,8 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Shift+click cell | — | Grow selection bounding box (cannot shrink, [SEL-3](#sel-3)). |
 | Click / Shift+click tool column | — | Select row / extend row selection. Commits an in-progress edit. |
 | Right-click tool column / header | — | Context menus (see feature inventory). |
+| Click sort control (right edge of a header) | Sortable column | Sort by the column: ascending → descending → off; replaces the sort. Re-sorts when the order is stale (`SortPolicy::OnDemand`). |
+| Shift+click sort control | Sortable column | Add the column as the next sort key, or cycle it in place. |
 | Drag column header | — | Swap with drop target ([DND-1](#dnd-1)). |
 | Drag column right edge | — | Resize the column (full table height is the handle). |
 | Double-click column right edge | — | Return the column to auto width and re-fit it to the header and visible rows, eased (tool column: default width). |
@@ -505,7 +508,7 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 
 #### VIEW-5
 **Column context menu stubs.** — *minor*
-- "Sort ascending/descending" and "Hide" do nothing.
+- "Hide" does nothing (VIEW-14). The sort items work since SORT-2.
 
 #### VIEW-6
 **"Clear" has no confirmation.** — *minor*
@@ -1255,7 +1258,8 @@ Glide Data Grid do, instead of inside the cell's `Ui`.
 - When the sort or filter changes, the view keeps its scroll position (anchor index) instead of following the top row, and reveals the selected row if there is one. On data changes the anchor follows its row as before.
 - Until the uid-based selection (step 2) the index-based selection is remapped through the uids of its first and last row; a selection whose rows are all filtered out is dropped. Programmatic selection (`select_row`) is not reported as `SelectionChanged`.
 - The tool column shows the natural row number, so filtered-out rows show as gaps.
-- Not yet: the sort indicator and header menu (SORT-2), the find bar, per-column filter popups, marking rows that no longer match after an own edit.
+- SORT-2 (same day): the sort control and header menu as described below, with the key number next to the arrow. A click on a stale control (`OnDemand`) re-sorts instead of cycling.
+- Not yet: the find bar, per-column filter popups, marking rows that no longer match after an own edit.
 
 **Stability policy.** Re-sorting or re-filtering immediately after a value changes makes rows jump
 away under the user: edit a cell in a sorted column and the row vanishes. AG Grid, Google Sheets

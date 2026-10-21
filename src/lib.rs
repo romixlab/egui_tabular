@@ -12,8 +12,10 @@ pub use importers::tabular_importer::TabularImporter;
 pub use backends::variant::{ColumnDef, VariantTable};
 pub use cell_ui::{CellUi, DateCellUi, DateFormats, EditorResponse, RowCells, VariantCellUi};
 pub use commands::TableCommand;
-pub use row_order::{ColumnFilter, RowFilter, RowOrderOptions, SortPolicy};
-pub use table_view::{TableEvent, TableView, TableViewConfig, TableViewOptions, TableViewOutput};
+pub use row_order::{ColumnFilter, RowFilter, RowOrderOptions, SortPolicy, click_sort};
+pub use table_view::{
+    SortIndicatorOptions, TableEvent, TableView, TableViewConfig, TableViewOptions, TableViewOutput,
+};
 
 pub use egui;
 pub use rvariant;

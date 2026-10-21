@@ -108,6 +108,33 @@ impl Default for RowOrderOptions {
     }
 }
 
+/// What a click on a column's sort control does to `sort`: cycles the column ascending →
+/// descending → unsorted. A plain click makes it the only key; with `add` (Shift+click) the
+/// other keys stay and a new column is appended as the next key. Returns true if `sort` changed.
+pub fn click_sort(sort: &mut Vec<SortKey>, col: ColumnUid, add: bool) -> bool {
+    let before = sort.clone();
+    let current = sort.iter().position(|k| k.col == col);
+    let next = match current.map(|i| sort[i].direction) {
+        None => Some(SortDirection::Ascending),
+        Some(SortDirection::Ascending) => Some(SortDirection::Descending),
+        Some(SortDirection::Descending) => None,
+    };
+    if add {
+        match (current, next) {
+            (Some(i), Some(direction)) => sort[i].direction = direction,
+            (Some(i), None) => {
+                sort.remove(i);
+            }
+            (None, Some(direction)) => sort.push(SortKey { col, direction }),
+            (None, None) => {}
+        }
+    } else {
+        sort.clear();
+        sort.extend(next.map(|direction| SortKey { col, direction }));
+    }
+    *sort != before
+}
+
 /// Result of [`compute`].
 pub(crate) struct RowOrder {
     /// Shown rows in display order.
@@ -661,6 +688,27 @@ mod tests {
             rows(&[SortKey::descending(C0)], &RowFilter::default()),
             [0, 2, 1]
         );
+    }
+
+    #[test]
+    fn click_sort_cycles_and_adds_keys() {
+        let mut sort = vec![];
+        assert!(click_sort(&mut sort, C0, false));
+        assert_eq!(sort, [SortKey::ascending(C0)]);
+        click_sort(&mut sort, C0, false);
+        assert_eq!(sort, [SortKey::descending(C0)]);
+        click_sort(&mut sort, C1, true);
+        assert_eq!(sort, [SortKey::descending(C0), SortKey::ascending(C1)]);
+        click_sort(&mut sort, C1, true);
+        assert_eq!(sort, [SortKey::descending(C0), SortKey::descending(C1)]);
+        click_sort(&mut sort, C0, true);
+        assert_eq!(sort, [SortKey::descending(C1)]);
+        // A plain click on another column replaces the sort.
+        click_sort(&mut sort, C0, false);
+        assert_eq!(sort, [SortKey::ascending(C0)]);
+        click_sort(&mut sort, C0, false);
+        assert!(click_sort(&mut sort, C0, false));
+        assert!(sort.is_empty());
     }
 
     #[test]

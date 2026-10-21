@@ -214,6 +214,12 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
         self.h.run();
     }
 
+    /// Right-click the label with this text, e.g. to open a context menu.
+    pub fn right_click(&mut self, text: &str) {
+        self.node(text).click_secondary();
+        self.h.run();
+    }
+
     pub fn shift_click(&mut self, text: &str) {
         self.node(text).click_modifiers(Modifiers::SHIFT);
         self.h.run();
