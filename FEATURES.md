@@ -239,7 +239,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Cell context menu (copy, cut, paste, clear, insert/delete row) | 📋 planned | Only the tool column and headers have menus. |
 | Programmatic control (`set_selection`, `scroll_to`, `start_edit`, `cancel_edit`, `focus`) | 🚧 partial | VIEW-13: `select_row`, `clear_selection`, `scroll_to_row`, `refresh_rows` (applied at the next `show`, not reported as events). The rest comes in roadmap step 2, with the uid-based selection. |
 | Find (Ctrl+F): highlight matches, next/previous | 📋 planned | Distinct from filtering; uses `get()`/`CellUi::text()`. [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
-| Hide columns and a column chooser to show them again | 🚧 partial | `TableViewConfig::hidden_columns` hides columns (VIEW-12); the "Hide" menu item and a chooser in the tool-column header menu come with VIEW-14. |
+| Hide columns and a column chooser to show them again | ✅ done | VIEW-14: "Hide" in the column header menu and a "Columns" checkbox list (every column in the user's order) in the tool-column header menu; both write `TableViewConfig::hidden_columns` and emit `TableEvent::ConfigChanged`. The chooser stays open while columns are toggled. Tests: `columns::{hide_in_header_menu_hides_the_column, column_chooser_shows_hidden_columns_again}`. |
 | Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
 | Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
@@ -345,7 +345,7 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Right-click tool column / header | — | Context menus (see feature inventory). |
 | Click sort control (right edge of a header) | Sortable column | Sort by the column: ascending → descending → off; replaces the sort. Re-sorts when the order is stale (`SortPolicy::OnDemand`). |
 | Shift+click sort control | Sortable column | Add the column as the next sort key, or cycle it in place. |
-| Drag column header | — | Swap with drop target ([DND-1](#dnd-1)). |
+| Drag column header | — | Move the column to the drop target's place; the columns in between shift (DND-1). |
 | Drag column right edge | — | Resize the column (full table height is the handle). |
 | Double-click column right edge | — | Return the column to auto width and re-fit it to the header and visible rows, eased (tool column: default width). |
 | Mouse wheel | Pointer over table | Scroll rows; Shift+wheel scrolls horizontally. |
@@ -439,17 +439,7 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 
 ### Column drag & drop
 
-#### DND-1
-**Drop swaps columns instead of moving.** — *major (UX)*
-- Where: `TableView::swap_columns` (`table_view.rs:376`).
-- Dropping A on D in `A B C D` yields `D B C A`. Expected `B C D A` (or insert-before semantics with an insertion marker).
-- Test (ignored, fails): `columns::drag_header_moves_column`.
 
-#### DND-3
-**`SelectedRange::swap_col` is a no-op when the selection is in the drop-target column.** — *major*
-- Where: `state.rs:122-133`.
-- Cause: the first `if` sets `col_start = col2`, then the second `if self.col_start == col2` immediately sets it back to `col1`. Needs `else if`. `swap_columns` passes the drop target as `col1`, so only a selection in the target column is affected; a selection in the dragged column follows it (`columns::selection_follows_dragged_column`). The selection (and an in-progress edit) ends up on the wrong column.
-- Test (ignored, fails): `columns::selection_follows_drop_target_column`.
 
 #### DND-4
 **Drop-target highlight hides the header text and highlights the source column.** — *minor (visual)*
@@ -1436,6 +1426,8 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 | VIEW-9 | `bf0d2d8` | `N` blinked when the view was at the end: the post-header sync moved the anchor to the end (stick to bottom) and the body rendered it unclamped, i.e. empty, for one frame. Now normalized after every sync. (DESIGN-9) |
 | EDIT-13 | `dfa65c5` | Date, Time and DateTime cells: `DateCellUi`/`DateFormats` (formats, relative days), a parsing text editor; sorted by point in time and filtered with `ColumnFilter::Range` by the view (its `date_sort_key`/`DateRange` were folded into `row_order`). Tests: `dates`. |
 | EDIT-10 | `0205e1e` | Clicking on a cell's text didn't select or edit it, only the empty part of the cell did: labels are selectable by default and sense clicks above the cell. Cells and headers now disable `selectable_labels`, which also covers custom cell UI. Found by the egui_kittest suite (`selection::click_selects_cell`). |
+| DND-1 | HASH | Drop moved by swapping two columns; now move (insert) semantics: `A B C D` with A dropped on D gives `B C D A`. The shown order is written to `config.column_order`. Tests: `columns::{drag_header_moves_column, drag_header_moves_column_backwards}`. |
+| DND-3 | HASH | A single selected cell now follows its column across a move (looked up by `ColumnUid` after the move); `SelectedRange::swap_col` replaced by `set_col`. Test: `columns::selection_follows_drop_target_column`. |
 | DND-5 | `7ad7e2b` | Column order, resized widths and hidden columns are saved in `TableViewConfig` (VIEW-12). Tests: `order::{column_order_comes_from_config, dragging_a_column_saves_the_order, resizing_saves_the_width_and_saved_widths_apply}`. |
 | DND-2 | `bf0d2d8` | Column widths keyed by `ColumnUid`. (DESIGN-9) |
 | FLAGS-1 | `80bd7d2` | One-shot flags replaced by `Revision` counters that are never consumed; every view and app code compares its own copy. Test: `model::every_view_sees_model_changes`. (DESIGN-8) |

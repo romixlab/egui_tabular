@@ -199,17 +199,11 @@ impl SelectedRange {
         self.row_start == self.row_end && self.col_start == self.col_end
     }
 
-    pub fn swap_col(&mut self, col1_idx: usize, col2_idx: usize) {
-        if !self.is_single_cell() {
-            return;
-        }
-        if self.col_start == col1_idx {
-            self.col_start = col2_idx;
-            self.col_end = col2_idx;
-        }
-        if self.col_start == col2_idx {
-            self.col_start = col1_idx;
-            self.col_end = col1_idx;
+    /// Move a single-cell selection to column `col_idx`.
+    pub fn set_col(&mut self, col_idx: usize) {
+        if self.is_single_cell() {
+            self.col_start = col_idx;
+            self.col_end = col_idx;
         }
     }
 

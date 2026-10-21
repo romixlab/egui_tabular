@@ -19,7 +19,7 @@ use egui::{
     PopupAnchor, Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke,
     TextWrapMode, Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use tabular_core::{
     Capabilities, CellCoord, CellLevel, ColumnInfo, ColumnUid, ModelError, Revision, RowPosition,
     RowUid, SortDirection, SortKey, TableModel,
@@ -529,7 +529,7 @@ impl TableView {
                 header_height + body_height,
             ),
         );
-        let mut swap_columns = None;
+        let mut move_columns = None;
         let response = ui
             .scope_builder(UiBuilder::new().max_rect(content_rect), |ui| {
                 ScrollArea::horizontal()
@@ -571,7 +571,7 @@ impl TableView {
                             &grid,
                             top,
                             &columns,
-                            &mut swap_columns,
+                            &mut move_columns,
                         );
                         let bottom = self.show_body(
                             model,
@@ -607,13 +607,13 @@ impl TableView {
         });
 
         self.state.columns_ordered = columns.tap_mut(|columns| {
-            if let Some((c1, c2)) = swap_columns {
-                Self::swap_columns(columns, c1, c2, &mut self.state.selected_range);
+            if let Some((c1, c2)) = move_columns {
+                Self::move_column(columns, c2, c1, &mut self.state.selected_range);
                 self.state.events.push(TableEvent::ColumnsReordered);
                 self.state.events.push(TableEvent::ConfigChanged);
             }
         });
-        if swap_columns.is_some() {
+        if move_columns.is_some() {
             let shown = self.state.columns_ordered.clone();
             self.store_column_order(config, &shown);
         }
@@ -861,7 +861,7 @@ impl TableView {
         grid: &Grid,
         top: f32,
         columns: &[ColumnUid],
-        swap_columns: &mut Option<(ColumnUid, ColumnUid)>,
+        move_columns: &mut Option<(ColumnUid, ColumnUid)>,
     ) -> f32 {
         let Grid {
             slots,
@@ -954,10 +954,15 @@ impl TableView {
             let column_uid = match slot.key {
                 ColumnKey::Tool => {
                     let mut export = false;
+                    let all_columns = self.all_columns_ordered(config);
                     resp.context_menu(|ui| {
                         export = tool_column::tool_column_header_menu_ui(
                             ui,
                             caps,
+                            &all_columns,
+                            &self.state.columns,
+                            &mut config.hidden_columns,
+                            &mut self.state.events,
                             &mut self.state.commands,
                         );
                     });
@@ -1000,7 +1005,7 @@ impl TableView {
             }
 
             if let Some(payload) = resp.dnd_release_payload::<ColumnUid>() {
-                *swap_columns = Some((column_uid, *payload));
+                *move_columns = Some((column_uid, *payload));
             }
 
             let mut sort_changed = Self::column_context_menu(
@@ -1008,6 +1013,8 @@ impl TableView {
                 column_uid,
                 resp,
                 caps,
+                &mut config.hidden_columns,
+                &mut self.state.events,
                 &mut self.state.commands,
                 &mut config.sort,
             );
@@ -1557,6 +1564,8 @@ impl TableView {
         col_uid: ColumnUid,
         resp: Response,
         caps: Capabilities,
+        hidden_columns: &mut BTreeSet<ColumnUid>,
+        events: &mut Vec<TableEvent>,
         commands: &mut Vec<TableCommand>,
         sort: &mut Vec<SortKey>,
     ) -> bool {
@@ -1585,6 +1594,8 @@ impl TableView {
                 ui.close_kind(UiKind::Menu);
             }
             if ui.button("Hide").clicked() {
+                hidden_columns.insert(col_uid);
+                events.push(TableEvent::ConfigChanged);
                 ui.close_kind(UiKind::Menu);
             }
             if caps.skip_columns {
@@ -1620,33 +1631,34 @@ impl TableView {
         }
     }
 
-    fn swap_columns(
+    /// Move `moved` to the place of `target` (move semantics: the columns in between shift).
+    fn move_column(
         columns: &mut Vec<ColumnUid>,
-        c1: ColumnUid,
-        c2: ColumnUid,
+        moved: ColumnUid,
+        target: ColumnUid,
         selected_range: &mut Option<SelectedRange>,
     ) {
-        let c1_idx = columns
-            .iter()
-            .enumerate()
-            .find(|(_, uid)| **uid == c1)
-            .map(|(idx, _)| idx);
-        let c2_idx = columns
-            .iter()
-            .enumerate()
-            .find(|(_, uid)| **uid == c2)
-            .map(|(idx, _)| idx);
-        if let (Some(c1_idx), Some(c2_idx)) = (c1_idx, c2_idx) {
-            columns.swap(c1_idx, c2_idx);
-            if let Some(r) = selected_range {
-                if r.is_single_cell() {
-                    // Keep selection if only one cell was selected, but adjust accordingly
-                    r.swap_col(c1_idx, c2_idx);
-                } else if !(r.contains_col(c1_idx) && r.contains_col(c2_idx)) {
-                    // Deselect if column was dragged outside current selection
-                    *selected_range = None;
-                }
-            }
+        let from = columns.iter().position(|uid| *uid == moved);
+        let to = columns.iter().position(|uid| *uid == target);
+        let (Some(from), Some(to)) = (from, to) else {
+            return;
+        };
+        let selected_uid = selected_range
+            .as_ref()
+            .filter(|r| r.is_single_cell())
+            .and_then(|r| columns.get(r.col_start()).copied());
+        let deselect = selected_range
+            .as_ref()
+            .is_some_and(|r| !r.is_single_cell() && !(r.contains_col(from) && r.contains_col(to)));
+        let col = columns.remove(from);
+        columns.insert(to, col);
+        if deselect {
+            *selected_range = None;
+        } else if let (Some(r), Some(uid)) = (selected_range, selected_uid)
+            && let Some(idx) = columns.iter().position(|c| *c == uid)
+        {
+            // A single selected cell stays on its column.
+            r.set_col(idx);
         }
     }
 

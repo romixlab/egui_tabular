@@ -1,6 +1,9 @@
+use crate::TableEvent;
 use crate::commands::TableCommand;
-use egui::{Button, Ui, UiKind};
-use tabular_core::{Capabilities, RowPosition, RowUid, TableModel};
+use egui::containers::menu::{MenuConfig, SubMenuButton};
+use egui::{Button, PopupCloseBehavior, Ui, UiKind};
+use std::collections::{BTreeSet, HashMap};
+use tabular_core::{Capabilities, ColumnInfo, ColumnUid, RowPosition, RowUid, TableModel};
 
 /// Shown when right-clicked on tool column row.
 pub(super) fn tool_column_row_menu_ui<M: TableModel>(
@@ -28,6 +31,10 @@ pub(super) fn tool_column_row_menu_ui<M: TableModel>(
 pub(super) fn tool_column_header_menu_ui(
     ui: &mut Ui,
     caps: Capabilities,
+    all_columns: &[ColumnUid],
+    infos: &HashMap<ColumnUid, ColumnInfo>,
+    hidden_columns: &mut BTreeSet<ColumnUid>,
+    events: &mut Vec<TableEvent>,
     commands: &mut Vec<TableCommand>,
 ) -> bool {
     let export = ui.button("Export CSV").clicked();
@@ -35,6 +42,7 @@ pub(super) fn tool_column_header_menu_ui(
         ui.close_kind(UiKind::Menu);
     }
     append_row(ui, caps, commands);
+    column_chooser(ui, all_columns, infos, hidden_columns, events);
     if caps.clear {
         ui.add_space(24.0);
         // TODO: Ask before clearing (VIEW-6)
@@ -54,4 +62,31 @@ fn append_row(ui: &mut Ui, caps: Capabilities, commands: &mut Vec<TableCommand>)
         });
     }
     r.on_disabled_hover_text("This table is read-only");
+}
+
+/// Checkbox list of every column in the user's order; unchecked columns are hidden.
+fn column_chooser(
+    ui: &mut Ui,
+    all_columns: &[ColumnUid],
+    infos: &HashMap<ColumnUid, ColumnInfo>,
+    hidden_columns: &mut BTreeSet<ColumnUid>,
+    events: &mut Vec<TableEvent>,
+) {
+    // Stays open while columns are toggled.
+    let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
+    SubMenuButton::new("Columns").config(config).ui(ui, |ui| {
+        for col in all_columns {
+            let name = infos.get(col).map_or("", |info| info.name.as_str());
+            let name = if name.is_empty() { "No name" } else { name };
+            let mut shown = !hidden_columns.contains(col);
+            if ui.checkbox(&mut shown, name).changed() {
+                if shown {
+                    hidden_columns.remove(col);
+                } else {
+                    hidden_columns.insert(*col);
+                }
+                events.push(TableEvent::ConfigChanged);
+            }
+        }
+    });
 }

@@ -157,10 +157,15 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
 
     /// Data column names in visual order, read from header label positions.
     pub fn header_order(&self) -> Vec<String> {
+        // Hidden columns have no header; a menu's checkbox of the same name is not a Label.
         let mut headers: Vec<_> = (0..self.cols.len())
-            .map(|c| {
+            .filter_map(|c| {
                 let name = col_name(c);
-                (self.node(&name).rect().min.x, name)
+                let node = self
+                    .h
+                    .query_all_by_role_and_label(Role::Label, &name)
+                    .next()?;
+                Some((node.rect().min.x, name))
             })
             .collect();
         headers.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -299,6 +304,40 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
                 });
             }
         }
+        self.h.run();
+    }
+
+    /// Right-click at a position (opens a context menu).
+    pub fn right_click_at(&mut self, pos: Pos2) {
+        self.h.hover_at(pos);
+        self.h.step();
+        for pressed in [true, false] {
+            self.h.event(Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+        }
+        self.h.run();
+    }
+
+    /// Right-click a header (or any label).
+    pub fn right_click(&mut self, text: &str) {
+        self.node(text).click_secondary();
+        self.h.run();
+    }
+
+    /// Right-click the tool column header (the table icon, above the row numbers).
+    pub fn right_click_tool_header(&mut self) {
+        let y = self.node("A").rect().center().y;
+        let x = self.node("0").rect().center().x;
+        self.right_click_at(egui::pos2(x, y));
+    }
+
+    /// Click the checkbox with this label (e.g. in the column chooser).
+    pub fn click_checkbox(&mut self, text: &str) {
+        self.h.get_by_role_and_label(Role::CheckBox, text).click();
         self.h.run();
     }
 

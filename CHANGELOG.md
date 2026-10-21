@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The format follows
 - EDIT-13: `Date`, `Time` and `DateTime` cells. `DateCellUi` takes `DateFormats` (format strings per kind, optional relative days such as "3 d ago" or "in 2 d") and shows and edits with them; the text editor parses the format, ISO 8601 and relative words, and an invalid text is outlined and doesn't change the value. `show_value_with` / `edit_value_with` for custom `CellUi`s.
 - Dates and date-times sort by their point in time, also mixed in one column, and filter with `ColumnFilter::Range`.
 - Dependency on `chrono`.
+- Hidden columns UI (VIEW-14): "Hide" in the column header menu and a "Columns" checkbox list in the tool-column header menu to show them again; both emit `TableEvent::ConfigChanged`.
 
 ### Changed
 
@@ -23,4 +24,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- DND-1: dropping a column header moves the column instead of swapping it with the target.
+- DND-3: a selected cell follows its column when columns are moved.
 - DND-5: user column order is saved in `TableViewConfig`.

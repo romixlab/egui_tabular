@@ -102,7 +102,7 @@ fn row_builder_looks_up_each_row_once_per_frame() {
 fn row_builder_places_cells_by_column_after_a_move() {
     let mut t = frames();
     t.drag_column(0, 2);
-    assert_eq!(t.header_order(), ["C", "B", "A"]);
+    assert_eq!(t.header_order(), ["B", "C", "A"]);
     for (cell, header) in [("id1", "A"), ("dlc8", "B"), ("x001", "C")] {
         let (cell_x, header_x) = (t.node(cell).rect().min.x, t.node(header).rect().min.x);
         assert!(
