@@ -138,6 +138,8 @@ pub(super) struct SpanFrame<'a> {
     pub(super) shift: bool,
     /// Spans further than this from the viewport are cut there: they are clipped anyway.
     pub(super) reach: f32,
+    /// The spans collected by the body.
+    pub(super) spans: Vec<SpanCell>,
 }
 
 /// Draw the spans collected by the body, after all rows (see the module docs).
@@ -146,8 +148,7 @@ pub(super) fn show_span_cells<M: TableModel, C: CellUi<M>>(
     model: &mut M,
     cell_ui: &mut C,
     ui: &mut Ui,
-    frame: &SpanFrame,
-    spans: Vec<SpanCell>,
+    frame: SpanFrame,
     outline: &mut Vec<Shape>,
     commit_edit: &mut Option<CellCoord>,
 ) {
@@ -157,7 +158,8 @@ pub(super) fn show_span_cells<M: TableModel, C: CellUi<M>>(
         hover_pos,
         shift,
         reach,
-    } = *frame;
+        spans,
+    } = frame;
     let visual = ui.visuals().clone();
     for span in spans {
         let SpanCell {

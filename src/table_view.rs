@@ -1452,14 +1452,14 @@ impl TableView {
             model,
             cell_ui,
             ui,
-            &spans::SpanFrame {
+            spans::SpanFrame {
                 grid,
                 painter: &painter,
                 hover_pos,
                 shift,
                 reach: 2.0 * height,
+                spans,
             },
-            spans,
             &mut outline,
             &mut commit_edit,
         );
