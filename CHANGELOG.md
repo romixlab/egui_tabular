@@ -20,6 +20,7 @@ All notable changes to this project are documented here. The format follows
 - `demos/simple` shows sorting, a quick filter box, a status filter, a date column, an "N of M rows" line, a row details side panel and saves `TableViewConfig` with eframe persistence.
 - Row spans (VIEW-16): `TableModel::row_span` reports a cell that covers several rows of its column (`RowSpan { first, rows }`); the view draws it once over those rows, also when it starts above the viewport, and treats it as one unit for hover, click, selection and arrow keys. Read-only, shown in the natural row order. `demos/row_spans` shows a schedule.
 - `just test --changed` runs only the workspace crates changed against main and their dependents (`tpm test changed`, nextest's `rdeps()`); plain `just test` runs everything, as `just test-all` does (tpm ops#22oct-2049).
+- Pinned left columns (VIEW-17): `TableViewConfig::pinned_columns` keeps the tool column and chosen data columns on screen while the rest scrolls sideways; "Pin" in the column header menu toggles it; arrow-key column navigation scrolls the scrollable columns minimally into view and never needs to for a pinned one.
 
 ### Changed
 

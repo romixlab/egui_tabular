@@ -282,6 +282,7 @@ fn config_round_trips_through_serde() {
     c.filter.quick = "x".into();
     c.filter.columns.insert(A, ColumnFilter::Empty(false));
     c.hidden_columns.insert(B);
+    c.pinned_columns = vec![B];
     c.column_widths.insert(A, 120.0);
     let json = serde_json::to_string(&c).unwrap();
     let back: TableViewConfig = serde_json::from_str(&json).unwrap();

@@ -16,9 +16,9 @@ use egui::emath::GuiRounding;
 use egui::epaint::{PathShape, PathStroke};
 use egui::scroll_area::ScrollSource;
 use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, Id, Key, Label, Layout, PointerButton,
-    PopupAnchor, Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape, Stroke,
-    TextWrapMode, Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
+    Align, Align2, Color32, CornerRadius, CursorIcon, Id, Key, Label, Layout, Painter,
+    PointerButton, PopupAnchor, Pos2, Rangef, Rect, Response, RichText, ScrollArea, Sense, Shape,
+    Stroke, TextWrapMode, Tooltip, Ui, UiBuilder, UiKind, UiStackInfo, Vec2, Visuals,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 use tabular_core::{
@@ -32,17 +32,31 @@ const DEFAULT_MAX_HEIGHT: f32 = 800.0;
 const MIN_HEADER_HEIGHT: f32 = 20.0;
 const RESIZE_HANDLE_HALF_WIDTH: f32 = 3.0;
 
+/// Which side of the table a column is laid out in.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Pane {
+    /// Tool column and pinned columns: laid out directly, never affected by horizontal scroll.
+    Frozen,
+    /// Everything else: inside the horizontal `ScrollArea`.
+    Scroll,
+}
+
 /// Horizontal placement of a column in the current frame.
 #[derive(Copy, Clone)]
 struct Slot {
     key: ColumnKey,
+    pane: Pane,
     x: f32,
     /// Full width, including padding.
     width: f32,
     auto: bool,
+    /// Visible area for this slot's cells: the frozen strip, or the scroll viewport.
+    clip: Rect,
 }
 
-/// Column geometry shared by all cells of the current frame.
+/// Column geometry shared by all cells of the current frame. `slots` holds every column, frozen
+/// ones first; `clip` is only the decorative band used for lines that span the whole width
+/// (header underline, row fill, selection outline) — per-cell clipping uses `Slot::clip`.
 #[derive(Copy, Clone)]
 struct Grid<'a> {
     slots: &'a [Slot],
@@ -67,19 +81,21 @@ impl Slot {
     }
 }
 
-/// Child `Ui` for one cell, laid out top-down inside `rect` minus the grid padding. It is clipped
-/// to the column, and also to `rect`'s height if `clip_height` is set. With `measure` set the contents may
-/// use up to [`MAX_AUTO_COLUMN_WIDTH`], so that an auto-sized column can grow to fit them.
+/// Child `Ui` for one cell, laid out top-down inside `rect` minus `pad`. It is clipped to `clip`
+/// intersected with the column, and also to `rect`'s height if `clip_height` is set. With
+/// `measure` set the contents may use up to [`MAX_AUTO_COLUMN_WIDTH`], so that an auto-sized
+/// column can grow to fit them.
+#[allow(clippy::too_many_arguments)]
 fn cell_child_ui(
     parent: &mut Ui,
-    grid: &Grid,
+    pad: Vec2,
+    clip: Rect,
     rect: Rect,
     measure: bool,
     clip_height: bool,
     id_salt: Id,
     sense: Sense,
 ) -> Ui {
-    let Grid { pad, clip, .. } = *grid;
     let content_width = if measure {
         MAX_AUTO_COLUMN_WIDTH
     } else {
@@ -442,12 +458,17 @@ impl TableView {
         self.apply_commands(model, cell_ui, config);
 
         let columns = core::mem::take(&mut self.state.columns_ordered);
-        let keys: Vec<ColumnKey> = self
+        let (pinned_cols, scroll_cols) = self.split_pinned_columns(&columns, config);
+        let frozen_keys: Vec<ColumnKey> = self
             .options
             .tool_column
             .then_some(ColumnKey::Tool)
             .into_iter()
-            .chain(columns.iter().map(|uid| ColumnKey::Data(*uid)))
+            .chain(pinned_cols.iter().map(|uid| ColumnKey::Data(*uid)))
+            .collect();
+        let scroll_keys: Vec<ColumnKey> = scroll_cols
+            .iter()
+            .map(|uid| ColumnKey::Data(*uid))
             .collect();
 
         let pad = ui.spacing().item_spacing * 0.5;
@@ -489,7 +510,7 @@ impl TableView {
 
         // Auto-sizing changes ease in, user resizing is immediate.
         let ctx = ui.ctx().clone();
-        let widths: Vec<(ColumnKey, f32, bool)> = keys
+        let frozen_widths: Vec<(ColumnKey, f32, bool)> = frozen_keys
             .iter()
             .map(|key| {
                 let w = self.state.column_widths.get(*key);
@@ -500,7 +521,20 @@ impl TableView {
                 (*key, shown, w.auto)
             })
             .collect();
-        let columns_width: f32 = widths.iter().map(|(_, w, _)| w).sum();
+        let scroll_widths: Vec<(ColumnKey, f32, bool)> = scroll_keys
+            .iter()
+            .map(|key| {
+                let w = self.state.column_widths.get(*key);
+                let time = self.state.column_widths.animation_time(*key);
+                let shown = ctx
+                    .animate_value_with_time(id.with(("column_width", *key)), w.width, time)
+                    .round_ui();
+                (*key, shown, w.auto)
+            })
+            .collect();
+        let frozen_width: f32 = frozen_widths.iter().map(|(_, w, _)| w).sum();
+        let scroll_width: f32 = scroll_widths.iter().map(|(_, w, _)| w).sum();
+        let columns_width = frozen_width + scroll_width;
 
         self.handle_mouse_wheel(ui, body_height);
         self.state.rows.normalize(body_height);
@@ -535,81 +569,152 @@ impl TableView {
                 header_height + body_height,
             ),
         );
+        // Tool column and pinned columns are laid out directly (never scrolled); the rest lives
+        // in the horizontal `ScrollArea`, starting right after them.
+        let frozen_w = frozen_width.min(content_rect.width()).max(0.0);
+        let frozen_rect =
+            Rect::from_min_size(content_rect.min, Vec2::new(frozen_w, content_rect.height()));
+        let scroll_area_rect = Rect::from_min_max(
+            Pos2::new(content_rect.min.x + frozen_w, content_rect.min.y),
+            content_rect.max,
+        );
+        let frozen_clip = Rect::from_x_y_ranges(
+            Rangef::new(frozen_rect.left(), frozen_rect.left() + frozen_w),
+            outer_clip.y_range(),
+        );
+
         let mut move_columns = None;
         let response = ui
             .scope_builder(UiBuilder::new().max_rect(content_rect), |ui| {
-                ScrollArea::horizontal()
-                    .id_salt(id.with("h_scroll"))
-                    .scroll_source(ScrollSource::MOUSE_WHEEL)
-                    .show(ui, |ui| {
-                        let top = ui.cursor().top().round_ui();
-                        let left = ui.cursor().left().round_ui();
-                        let mut x = left;
-                        let slots: Vec<Slot> = widths
-                            .iter()
-                            .map(|&(key, width, auto)| {
-                                let slot = Slot {
-                                    key,
-                                    x,
-                                    width,
-                                    auto,
-                                };
-                                x += width;
-                                slot
-                            })
-                            .collect();
-                        // Horizontal clipping comes from the scroll area, vertical from the parent.
-                        let clip =
-                            Rect::from_x_y_ranges(ui.clip_rect().x_range(), outer_clip.y_range());
-
-                        let grid = Grid {
-                            slots: &slots,
-                            pad,
-                            clip,
-                            id,
+                let mut frozen_ui = ui.new_child(
+                    UiBuilder::new()
+                        .id_salt(id.with("frozen"))
+                        .max_rect(frozen_rect)
+                        .layout(Layout::top_down(Align::Min)),
+                );
+                let top = frozen_rect.top().round_ui();
+                let mut fx = frozen_rect.left().round_ui();
+                let frozen_slots: Vec<Slot> = frozen_widths
+                    .iter()
+                    .map(|&(key, width, auto)| {
+                        let slot = Slot {
+                            key,
+                            pane: Pane::Frozen,
+                            x: fx,
+                            width,
+                            auto,
+                            clip: frozen_clip,
                         };
-                        let body_top = self.show_header(
-                            model,
-                            cell_ui,
-                            config,
-                            caps,
-                            ui,
-                            &grid,
-                            top,
-                            &columns,
-                            &mut move_columns,
-                        );
-                        let bottom = self.show_body(
-                            model,
-                            cell_ui,
-                            config,
-                            caps,
-                            ui,
-                            &grid,
-                            Rangef::new(body_top, body_top + body_height),
-                            &columns,
-                        );
-                        ui.allocate_rect(
-                            Rect::from_x_y_ranges(left..=x, top..=bottom),
-                            Sense::hover(),
-                        );
-                        self.column_resize_handles(
-                            ui,
-                            config,
-                            &grid,
-                            Rangef::new(top, body_top),
-                            Rangef::new(top, bottom),
-                        );
-                    });
+                        fx += width;
+                        slot
+                    })
+                    .collect();
+
+                ui.scope_builder(UiBuilder::new().max_rect(scroll_area_rect), |ui| {
+                    ScrollArea::horizontal()
+                        .id_salt(id.with("h_scroll"))
+                        .scroll_source(ScrollSource::MOUSE_WHEEL)
+                        .show(ui, |ui| {
+                            let left = ui.cursor().left().round_ui();
+                            let mut x = left;
+                            // Horizontal clipping comes from the scroll area, vertical from the
+                            // parent.
+                            let scroll_clip = Rect::from_x_y_ranges(
+                                ui.clip_rect().x_range(),
+                                outer_clip.y_range(),
+                            );
+                            let scroll_slots: Vec<Slot> = scroll_widths
+                                .iter()
+                                .map(|&(key, width, auto)| {
+                                    let slot = Slot {
+                                        key,
+                                        pane: Pane::Scroll,
+                                        x,
+                                        width,
+                                        auto,
+                                        clip: scroll_clip,
+                                    };
+                                    x += width;
+                                    slot
+                                })
+                                .collect();
+
+                            // Horizontal reveal (arrow-key navigation): only scrollable columns
+                            // ever need it, pinned ones are always visible.
+                            if let Some(col) = self.state.reveal_col.take()
+                                && let Some(slot) =
+                                    scroll_slots.iter().find(|s| s.key == ColumnKey::Data(col))
+                            {
+                                ui.scroll_to_rect(
+                                    Rect::from_x_y_ranges(
+                                        Rangef::new(slot.x, slot.x + slot.width),
+                                        Rangef::new(top, top + 1.0),
+                                    ),
+                                    None,
+                                );
+                            }
+
+                            let all_slots: Vec<Slot> = frozen_slots
+                                .iter()
+                                .copied()
+                                .chain(scroll_slots.iter().copied())
+                                .collect();
+                            let band_clip = Rect::from_x_y_ranges(
+                                Rangef::new(frozen_clip.left(), scroll_clip.right()),
+                                outer_clip.y_range(),
+                            );
+                            let grid = Grid {
+                                slots: &all_slots,
+                                pad,
+                                clip: band_clip,
+                                id,
+                            };
+                            let body_top = self.show_header(
+                                model,
+                                cell_ui,
+                                config,
+                                caps,
+                                &mut frozen_ui,
+                                ui,
+                                &grid,
+                                top,
+                                &columns,
+                                &mut move_columns,
+                            );
+                            let bottom = self.show_body(
+                                model,
+                                cell_ui,
+                                config,
+                                caps,
+                                &mut frozen_ui,
+                                ui,
+                                &grid,
+                                Rangef::new(body_top, body_top + body_height),
+                                &columns,
+                            );
+                            ui.allocate_rect(
+                                Rect::from_x_y_ranges(left..=x, top..=bottom),
+                                Sense::hover(),
+                            );
+                            self.column_resize_handles(
+                                &mut frozen_ui,
+                                ui,
+                                config,
+                                &grid,
+                                Rangef::new(top, body_top),
+                                Rangef::new(top, bottom),
+                            );
+                        });
+                });
             })
             .response;
         if self.state.column_widths.end_frame() {
             ctx.request_repaint();
         }
         self.state.table_rect = Some(if bar_width > 0.0 {
-            response.rect.union(bar_rect)
+            content_rect.union(bar_rect)
         } else {
-            response.rect
+            content_rect
         });
 
         self.state.columns_ordered = columns.tap_mut(|columns| {
@@ -727,6 +832,34 @@ impl TableView {
             .collect();
         self.sync_rows(model, cell_ui, config, rev, last);
         self.state.revision = Some(rev);
+    }
+
+    /// Split the visible, ordered columns into pinned (shown frozen, in
+    /// `config.pinned_columns`'s order) and the rest (scrollable, in their visual order).
+    fn split_pinned_columns(
+        &self,
+        columns: &[ColumnUid],
+        config: &TableViewConfig,
+    ) -> (Vec<ColumnUid>, Vec<ColumnUid>) {
+        let visible: HashSet<ColumnUid> = columns.iter().copied().collect();
+        let pinned_set: HashSet<ColumnUid> = config
+            .pinned_columns
+            .iter()
+            .copied()
+            .filter(|col| visible.contains(col))
+            .collect();
+        let pinned = config
+            .pinned_columns
+            .iter()
+            .copied()
+            .filter(|col| pinned_set.contains(col))
+            .collect();
+        let scroll = columns
+            .iter()
+            .copied()
+            .filter(|col| !pinned_set.contains(col))
+            .collect();
+        (pinned, scroll)
     }
 
     /// Every model column in the user's order, hidden ones included.
@@ -863,6 +996,7 @@ impl TableView {
         cell_ui: &mut C,
         config: &mut TableViewConfig,
         caps: Capabilities,
+        frozen_ui: &mut Ui,
         ui: &mut Ui,
         grid: &Grid,
         top: f32,
@@ -878,14 +1012,21 @@ impl TableView {
         let ctx = ui.ctx().clone();
         let ui_layer_id = ui.layer_id();
         let visual = ui.visuals().clone();
-        let painter = ui.painter().with_clip_rect(clip);
+        // Not `ui.painter().with_clip_rect`: that only narrows the ambient clip (the scroll
+        // viewport), so it could never paint over the frozen pane. Spans the whole header band.
+        let painter = Painter::new(ctx.clone(), ui_layer_id, clip);
         let estimate = Rangef::new(top, top + self.state.header_height);
 
         let mut cells = Vec::with_capacity(slots.len());
         for slot in slots {
+            let target: &mut Ui = match slot.pane {
+                Pane::Frozen => &mut *frozen_ui,
+                Pane::Scroll => &mut *ui,
+            };
             let mut cell = cell_child_ui(
-                ui,
-                grid,
+                target,
+                pad,
+                slot.clip,
                 slot.rect(estimate),
                 slot.auto,
                 false,
@@ -946,6 +1087,10 @@ impl TableView {
         let y_range = Rangef::new(top, top + height);
 
         for (slot, cell) in slots.iter().zip(cells) {
+            let target: &mut Ui = match slot.pane {
+                Pane::Frozen => &mut *frozen_ui,
+                Pane::Scroll => &mut *ui,
+            };
             let indicator_width = match slot.key {
                 ColumnKey::Data(col) if self.has_sort_indicator(col) => {
                     self.options.sort_indicator.width
@@ -1023,6 +1168,7 @@ impl TableView {
                 resp,
                 caps,
                 &mut config.hidden_columns,
+                &mut config.pinned_columns,
                 &mut self.state.events,
                 &mut self.state.commands,
                 &mut config.sort,
@@ -1035,7 +1181,7 @@ impl TableView {
                 );
                 let name = column.name.clone();
                 sort_changed |=
-                    self.sort_indicator(ui, &painter, id, rect, column_uid, &name, config);
+                    self.sort_indicator(target, &painter, id, rect, column_uid, &name, config);
             }
             if sort_changed {
                 self.state.events.push(TableEvent::SortChanged);
@@ -1060,6 +1206,7 @@ impl TableView {
         cell_ui: &mut C,
         config: &TableViewConfig,
         caps: Capabilities,
+        frozen_ui: &mut Ui,
         ui: &mut Ui,
         grid: &Grid,
         body: Rangef,
@@ -1074,13 +1221,18 @@ impl TableView {
         let ctx = ui.ctx().clone();
         let style = ui.style().clone();
         let visual = &style.visuals;
-        let painter = ui.painter().with_clip_rect(clip);
+        // Not `ui.painter().with_clip_rect`: that only narrows the ambient clip (the scroll
+        // viewport), so it could never paint over the frozen pane. Spans the whole body band.
+        let painter = Painter::new(ctx.clone(), ui.layer_id(), clip);
         let uniform = !config.use_heterogeneous_row_heights;
         let min_row_height = config.minimum_row_height + 2.0 * pad.y;
-        let first_data_slot = slots
+        // `slots` is in rendering order (frozen columns first), not `columns`' order, so a
+        // column's selection index comes from this map, not from its position in `slots`.
+        let col_index: HashMap<ColumnUid, usize> = columns
             .iter()
-            .position(|s| matches!(s.key, ColumnKey::Data(_)))
-            .unwrap_or(slots.len());
+            .enumerate()
+            .map(|(idx, col)| (*col, idx))
+            .collect();
         let x_range = grid.x_range();
         let hover_pos = ctx
             .pointer_hover_pos()
@@ -1109,9 +1261,18 @@ impl TableView {
             let mut tool_cell = None;
             let mut data_cells = Vec::with_capacity(columns.len());
             let mut data_slots = Vec::with_capacity(columns.len());
-            for (slot_idx, slot) in slots.iter().enumerate() {
+            for slot in slots.iter() {
                 let cell_bg = painter.add(Shape::Noop);
-                let col_idx = slot_idx.wrapping_sub(first_data_slot);
+                let col_idx = match slot.key {
+                    ColumnKey::Tool => usize::MAX,
+                    ColumnKey::Data(col_uid) => {
+                        col_index.get(&col_uid).copied().unwrap_or(usize::MAX)
+                    }
+                };
+                let target: &mut Ui = match slot.pane {
+                    Pane::Frozen => &mut *frozen_ui,
+                    Pane::Scroll => &mut *ui,
+                };
                 // A cell covered by a row span is drawn with the span, after all rows.
                 if let ColumnKey::Data(col_uid) = slot.key
                     && let Some((first_idx, last_idx)) =
@@ -1133,8 +1294,9 @@ impl TableView {
                         });
                     }
                     let hidden = cell_child_ui(
-                        ui,
-                        grid,
+                        target,
+                        pad,
+                        slot.clip,
                         slot.rect(estimate),
                         false,
                         true,
@@ -1157,8 +1319,9 @@ impl TableView {
                         })
                         .unwrap_or(false);
                 let mut cell = cell_child_ui(
-                    ui,
-                    grid,
+                    target,
+                    pad,
+                    slot.clip,
                     slot.rect(estimate),
                     // An editor sizes itself to the available width, don't let it grow the column.
                     slot.auto && !is_editing_current_cell,
@@ -1454,6 +1617,7 @@ impl TableView {
             s,
             model,
             cell_ui,
+            frozen_ui,
             ui,
             spans::SpanFrame {
                 grid,
@@ -1486,6 +1650,7 @@ impl TableView {
     /// Drag a column's right edge to resize it, double-click it to return to auto width.
     fn column_resize_handles(
         &mut self,
+        frozen_ui: &mut Ui,
         ui: &mut Ui,
         config: &mut TableViewConfig,
         grid: &Grid,
@@ -1495,7 +1660,9 @@ impl TableView {
         let Grid {
             slots, clip, id, ..
         } = *grid;
-        let painter = ui.painter().with_clip_rect(clip);
+        // Not `ui.painter().with_clip_rect`: that only narrows the ambient clip (the scroll
+        // viewport), so a frozen column's resize line would never show.
+        let painter = Painter::new(ui.ctx().clone(), ui.layer_id(), clip);
         let widgets = ui.visuals().widgets.clone();
         for slot in slots {
             let x = slot.x + slot.width;
@@ -1503,7 +1670,12 @@ impl TableView {
                 x - RESIZE_HANDLE_HALF_WIDTH..=x + RESIZE_HANDLE_HALF_WIDTH,
                 full,
             );
-            let resp = ui.interact(rect, id.with(("resize", slot.key)), Sense::click_and_drag());
+            let target: &mut Ui = match slot.pane {
+                Pane::Frozen => &mut *frozen_ui,
+                Pane::Scroll => &mut *ui,
+            };
+            let resp =
+                target.interact(rect, id.with(("resize", slot.key)), Sense::click_and_drag());
             if resp.dragged() && resp.drag_delta().x != 0.0 {
                 self.state
                     .column_widths
@@ -1647,12 +1819,14 @@ impl TableView {
     }
 
     /// The header's context menu. Returns true if it changed `sort`.
+    #[allow(clippy::too_many_arguments)]
     fn column_context_menu(
         col: &ColumnInfo,
         col_uid: ColumnUid,
         resp: Response,
         caps: Capabilities,
         hidden_columns: &mut BTreeSet<ColumnUid>,
+        pinned_columns: &mut Vec<ColumnUid>,
         events: &mut Vec<TableEvent>,
         commands: &mut Vec<TableCommand>,
         sort: &mut Vec<SortKey>,
@@ -1683,6 +1857,16 @@ impl TableView {
             }
             if ui.button("Hide").clicked() {
                 hidden_columns.insert(col_uid);
+                events.push(TableEvent::ConfigChanged);
+                ui.close_kind(UiKind::Menu);
+            }
+            let mut pinned = pinned_columns.contains(&col_uid);
+            if ui.checkbox(&mut pinned, "Pin").changed() {
+                if pinned {
+                    pinned_columns.push(col_uid);
+                } else {
+                    pinned_columns.retain(|c| *c != col_uid);
+                }
                 events.push(TableEvent::ConfigChanged);
                 ui.close_kind(UiKind::Menu);
             }

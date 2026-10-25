@@ -26,6 +26,10 @@ pub struct TableViewConfig {
     pub column_widths: BTreeMap<ColumnUid, f32>,
     /// Columns not shown.
     pub hidden_columns: BTreeSet<ColumnUid>,
+    /// Columns pinned to the left, in this order, after the tool column: they stay in place
+    /// while the rest of the table scrolls sideways. Hidden or unknown columns are skipped when
+    /// shown, but keep their place here (same convention as `column_order`).
+    pub pinned_columns: Vec<ColumnUid>,
     /// Sort keys, the first one is the primary key. Empty: the model's order.
     pub sort: Vec<SortKey>,
     /// Which rows are shown.
@@ -41,6 +45,7 @@ impl Default for TableViewConfig {
             column_order: vec![],
             column_widths: Default::default(),
             hidden_columns: Default::default(),
+            pinned_columns: vec![],
             sort: vec![],
             filter: RowFilter::default(),
         }

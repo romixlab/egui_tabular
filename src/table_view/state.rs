@@ -35,6 +35,9 @@ pub(super) struct State {
     /// Programmatic control, applied at the start of the next `show`.
     pub(super) requests: Vec<Request>,
     pub(super) selected_range: Option<SelectedRange>,
+    /// Column to scroll into view on the next horizontal layout, set by an arrow-key move.
+    /// Pinned columns never need it: they are always visible.
+    pub(super) reveal_col: Option<ColumnUid>,
     /// Value of the cell being edited, owned by the view until committed or cancelled.
     pub(super) edit: Option<EditBuffer>,
     /// Model revision the columns and rows were last synced with.
@@ -70,6 +73,7 @@ impl Default for State {
             order_stale: false,
             requests: vec![],
             selected_range: None,
+            reveal_col: None,
             edit: None,
             revision: None,
             commands: vec![],

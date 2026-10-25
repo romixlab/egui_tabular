@@ -9,7 +9,7 @@
 
 use super::layout::RowLayout;
 use super::state::{SelectedRange, State};
-use super::{Grid, Slot, TableEvent, cell_child_ui, finish_cell, level_color};
+use super::{Grid, Pane, Slot, TableEvent, cell_child_ui, finish_cell, level_color};
 use crate::cell_ui::{CellSlot, CellUi, RowCells};
 use egui::epaint::{PathShape, PathStroke};
 use egui::{CornerRadius, Painter, PointerButton, Pos2, Shape, Stroke, Ui};
@@ -143,10 +143,12 @@ pub(super) struct SpanFrame<'a> {
 }
 
 /// Draw the spans collected by the body, after all rows (see the module docs).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn show_span_cells<M: TableModel, C: CellUi<M>>(
     s: &mut State,
     model: &mut M,
     cell_ui: &mut C,
+    frozen_ui: &mut Ui,
     ui: &mut Ui,
     frame: SpanFrame,
     outline: &mut Vec<Shape>,
@@ -178,9 +180,14 @@ pub(super) fn show_span_cells<M: TableModel, C: CellUi<M>>(
         let rect = slot.rect(egui::Rangef::new(top, bottom));
         let bg = painter.add(Shape::Noop);
 
+        let target: &mut Ui = match slot.pane {
+            Pane::Frozen => &mut *frozen_ui,
+            Pane::Scroll => &mut *ui,
+        };
         let mut cell = cell_child_ui(
-            ui,
-            grid,
+            target,
+            grid.pad,
+            slot.clip,
             rect,
             slot.auto,
             true,

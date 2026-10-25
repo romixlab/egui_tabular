@@ -97,6 +97,81 @@ fn column_chooser_shows_hidden_columns_again() {
 }
 
 #[test]
+fn pin_in_header_menu_pins_the_column() {
+    let mut t = Table::grid(3, 1);
+    t.right_click("B");
+    t.click("Pin");
+    assert_eq!(t.h.state().config.pinned_columns, vec![ColumnUid(1)]);
+    assert!(t.saw(|e| *e == TableEvent::ConfigChanged));
+    // Unchecking it again un-pins it.
+    t.right_click("B");
+    t.click("Pin");
+    assert!(t.h.state().config.pinned_columns.is_empty());
+}
+
+#[test]
+fn pinned_column_stays_put_while_the_rest_scrolls_sideways() {
+    let mut t = Table::grid(6, 1);
+    t.config(|c| {
+        for col in 0..6 {
+            c.column_widths.insert(ColumnUid(col), 150.0);
+        }
+        c.pinned_columns = vec![ColumnUid(0)];
+    });
+    let pinned_x = t.node("A").rect().min.x;
+    let scrollable_x_before = t.node("B").rect().min.x;
+
+    t.h.hover_at(t.center("B1"));
+    t.h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-300.0, 0.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    t.h.run();
+
+    assert_eq!(
+        t.node("A").rect().min.x,
+        pinned_x,
+        "the pinned column must not move while the rest scrolls"
+    );
+    assert_ne!(
+        t.node("B").rect().min.x,
+        scrollable_x_before,
+        "scrolling sideways didn't move the scrollable columns"
+    );
+}
+
+#[test]
+fn arrow_right_reveals_a_scrolled_out_column_and_skips_pinned_ones() {
+    let mut t = Table::grid(6, 1);
+    t.config(|c| {
+        for col in 0..6 {
+            c.column_widths.insert(ColumnUid(col), 150.0);
+        }
+        c.pinned_columns = vec![ColumnUid(0)];
+    });
+    let pinned_x = t.node("A").rect().min.x;
+    let f_x_before = t.node("F").rect().min.x;
+
+    t.click("A1");
+    for _ in 0..5 {
+        t.press(egui::Key::ArrowRight);
+    }
+
+    assert_ne!(
+        t.node("F").rect().min.x,
+        f_x_before,
+        "arrow-right should have scrolled column F into view"
+    );
+    assert_eq!(
+        t.node("A").rect().min.x,
+        pinned_x,
+        "the pinned column never needs to be revealed, so it never moves"
+    );
+}
+
+#[test]
 fn header_types_can_be_hidden() {
     let mut t = crate::fixture::Table::grid(2, 1);
     assert!(t.h.query_all_by_label("String").count() > 0);

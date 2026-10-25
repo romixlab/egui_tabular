@@ -332,15 +332,20 @@ impl TableView {
                         if dr != 0 || unit.height() > 1 {
                             s.rows.reveal_range(unit.row_start(), unit.row_end());
                         }
+                        if dc != 0 {
+                            s.reveal_col = s.columns_ordered.get(col).copied();
+                        }
                         s.selected_range = Some(unit);
                     }
                 }
             } else if let Some(already_selected) = &mut s.selected_range {
                 if left {
                     already_selected.move_left(shift);
+                    s.reveal_col = s.columns_ordered.get(already_selected.col_start()).copied();
                 }
                 if right {
                     already_selected.move_right(shift, col_count);
+                    s.reveal_col = s.columns_ordered.get(already_selected.col_end()).copied();
                 }
                 if up {
                     already_selected.move_up(shift);

@@ -231,7 +231,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Row click and selection by `RowUid` (detail panels) | ✅ done | VIEW-13: `TableEvent::RowClicked { row, col }` (also on an already selected row; `col: None` for the row number), `RowDoubleClicked`; `TableView::{active_row, selected_rows, visible_rows, visible_columns, row_counts}`. |
 | Cell background colors / corner triangles / tooltips | ✅ done | |
 | Selection: single cell, rectangle, whole row, select all | 🐛 buggy | See [SEL-*](#selection-and-keyboard). |
-| Scroll selection into view on keyboard navigation | 🚧 partial | Vertical only (arrow keys). No horizontal reveal yet. |
+| Scroll selection into view on keyboard navigation | ✅ done | Vertical and horizontal (arrow keys); horizontal reveal only ever scrolls the scrollable columns, pinned ones never need it (VIEW-17). |
 | Page Up / Page Down / Home / End | 📋 planned | Trivial with the anchor: move it by what fit on screen. |
 | Ctrl+Arrow (jump to the data edge), Ctrl+Home / Ctrl+End | 📋 planned | Excel/Sheets convention. Edge = last non-empty cell before an empty one, or the table edge. |
 | Shift+Tab, Shift+Enter move backwards; Enter after commit moves down; Tab wraps at row end | 📋 planned | Excel convention. Today Enter stays on the cell and Tab stops at the last column. |
@@ -245,7 +245,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Hide columns and a column chooser to show them again | ✅ done | VIEW-14: "Hide" in the column header menu and a "Columns" checkbox list (every column in the user's order) in the tool-column header menu; both write `TableViewConfig::hidden_columns` and emit `TableEvent::ConfigChanged`. The chooser stays open while columns are toggled. Tests: `columns::{hide_in_header_menu_hides_the_column, column_chooser_shows_hidden_columns_again}`. |
 | Demo of sort, filter and saved view state | ✅ done | `demos/simple`: quick filter box (`RowFilter::quick`), a Status combo box (`ColumnFilter::OneOf`), a `Date` column (`FormattedCellUi`), "N of M rows" (`TableView::row_counts`), a right side panel with the active row's values (`TableEvent::RowClicked`, `TableView::active_row`), and `TableViewConfig` saved with eframe persistence (sort, filter, hidden columns, order, widths). |
 | Row spans ([VIEW-16](#table-view)) | ✅ done | A cell the model reports as spanning rows is drawn once over its rows (the first row's content via `CellUi::show_row` for that one column, an opaque background over the covered rows' stripes), also when it starts above the viewport, clipped there; heights follow uniform and heterogeneous rows (span content doesn't grow the rows). One unit for hover, click (`RowClicked` names the first row), selection (cell ranges grow until no span sticks out; whole-row selections don't) and arrow keys (move onto and off a span whole). Never edited. Not yet: column spans, a label kept in view while a tall span scrolls. Demo `demos/row_spans`; tests `tests/ui/spans.rs`, `spans::tests`. |
-| Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
+| Frozen (pinned) left columns; tool column stays while scrolling sideways | ✅ done | VIEW-17: the tool column is always frozen; `TableViewConfig::pinned_columns` lists the data columns pinned after it, in that order; toggled with "Pin" in the column header menu. The rest of the columns scroll in their own `ScrollArea`, to the right of the frozen strip. |
 | Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
 | Long text ends with "…" and shows the full text on hover | 📋 planned | Text is clipped at the column edge today. [DESIGN-14](#design-14-look-and-feel). |
@@ -1063,9 +1063,10 @@ replaces how that `Vec<RowUid>` is built. Paged or unbounded models (the "known 
 would replace the `Vec` with model-driven next/prev stepping from the anchor; the layout loop
 already only walks outwards from the anchor.
 
-**Not done yet:** horizontal reveal, Page Up/Down/Home/End, touch drag-to-scroll ([VIEW-8](#view-8)),
-persisting widths ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state)), a sticky
-tool column during horizontal scroll.
+**Not done yet:** Page Up/Down/Home/End, touch drag-to-scroll ([VIEW-8](#view-8)).
+Horizontal reveal, persisting widths ([DESIGN-4](#design-4-column-order-and-widths-as-persisted-view-state))
+and a sticky tool column during horizontal scroll are done (VIEW-17, see "Table view" in the
+feature inventory).
 
 ### DESIGN-10: Row builder for cell UI
 
@@ -1385,7 +1386,7 @@ structurally, so patching them in the old code first would be wasted work.
    layout ([DESIGN-9](#design-9-anchor-based-layout-without-egui_extras)), the view-owned edit
    buffer and `TableViewOptions` (step 1).
 3. 🚧 **Column order and widths** (DESIGN-4): DND-1, DND-4, DND-6; ~~persist order and widths (DND-5)~~ done with VIEW-12;
-   hidden columns with a column chooser; frozen columns and a sticky tool column.
+   hidden columns with a column chooser; ~~frozen columns and a sticky tool column~~ done with VIEW-17.
 4. 📋 **Live data** ([DESIGN-11](#design-11-live-data-and-models-without-variant-values)): `rows_log`
    fast path with a `VecDeque` row order, configurable stick to bottom that survives eviction,
    per-column degradation for models without values, change highlight, `demos/live` (simulated CAN

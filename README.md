@@ -36,6 +36,7 @@ TODO: Add web demo.
 * [x] Resizable, auto-sized columns.
 * [x] Scroll position anchored to a row: stays put when rows are inserted above.
 * [x] Drag&drop column reordering.
+* [x] Pinned (frozen) left columns, including the tool column, stay while the rest scrolls sideways (`TableViewConfig::pinned_columns`).
 * [x] Export to CSV.
 * [x] Stick to bottom mode for viewing real time data.
 * [x] Visual state can be persisted on disk.
