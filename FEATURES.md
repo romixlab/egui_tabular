@@ -330,7 +330,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Keyboard-only operation (no mouse needed) | 🚧 partial | Needs focus-based input (SEL-4) and keyboard access to menus (Shift+F10 / Menu key). |
 | Translatable UI strings | 💡 idea | "Append row (N)", paste dialog, menus are hard-coded English. A `TableStrings` struct in `TableViewOptions`. |
 | Right-to-left layout | 💡 idea | Not planned unless asked for. |
-| wasm | 🚧 partial | Builds are untested; `rfd` and the blocking save dialog don't work there ([EXPORT-4](#export-4), DESIGN-7). No web demo (README TODO). |
+| wasm | 🚧 partial | Builds for `wasm32-unknown-unknown` (tpm_mesh_dash's web tasks table uses it); `rfd` is a native-only dependency, so the importer's Open button and the tool column's Export CSV are left out there ([EXPORT-4](#export-4), DESIGN-7). No web demo (README TODO). |
 | Touch | 🐛 buggy | No drag-to-scroll ([VIEW-8](#view-8)); resize handles are thin. |
 | macOS shortcuts (Cmd) | 🐛 buggy | [SEL-5](#sel-5). |
 
@@ -543,6 +543,7 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 #### EXPORT-4
 **Blocking file dialog in the UI path.** — *minor*
 - `rfd::FileDialog::save_file()` blocks the frame and doesn't work on wasm.
+- On wasm the crate now builds without `rfd` (native-only dependency): no Export CSV and no importer Open button there until a non-blocking save/pick (a browser download, an `<input type=file>`) replaces it.
 
 ### Documentation
 

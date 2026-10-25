@@ -973,7 +973,10 @@ impl TableView {
                         );
                     });
                     if export {
+                        #[cfg(not(target_arch = "wasm32"))]
                         crate::util::export_csv(model, cell_ui, columns);
+                        #[cfg(target_arch = "wasm32")]
+                        let _ = columns; // the export's only use of them; never asked on wasm
                     }
                     resp.on_hover_text("Tool column, right click for actions");
                     continue;

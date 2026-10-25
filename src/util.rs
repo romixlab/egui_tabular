@@ -72,6 +72,7 @@ pub(crate) fn row_texts<M: TableModel, C: CellUi<M>>(
         .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn export_csv<M: TableModel, C: CellUi<M>>(model: &M, cell_ui: &C, cols: &[ColumnUid]) {
     let Some(path) = rfd::FileDialog::new().save_file() else {
         return;

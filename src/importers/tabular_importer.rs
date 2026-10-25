@@ -72,6 +72,8 @@ impl TabularImporter {
             if let Some(e) = &self.open_error {
                 ui.colored_label(ui.visuals().warn_fg_color, e);
             }
+            // no file dialog on wasm (EXPORT-4): a path comes through `config.picked_file` there
+            #[cfg(not(target_arch = "wasm32"))]
             if ui.button("Open").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     config.picked_file = Some(path.clone());

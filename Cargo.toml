@@ -35,13 +35,16 @@ encoding_rs_io = "0.1"
 indexmap = "2"
 itertools = "0.15"
 log = "0.4"
-rfd = "0.17"
 rvariant = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 strum = { workspace = true }
 tabular_core = { workspace = true }
 tabular_derive = { workspace = true }
 tap = "1.0"
+
+# The CSV export's save dialog: native only, the web has none (EXPORT-4)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = "0.17"
 
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["snapshot", "wgpu"] }

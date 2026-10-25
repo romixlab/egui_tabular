@@ -27,7 +27,7 @@ pub(super) fn tool_column_row_menu_ui<M: TableModel>(
 }
 
 /// Shown when right-clicked on tool column header (table icon). Returns true if "Export CSV"
-/// was clicked.
+/// was clicked. On wasm there is no save dialog (EXPORT-4), so no "Export CSV" either.
 pub(super) fn tool_column_header_menu_ui(
     ui: &mut Ui,
     caps: Capabilities,
@@ -37,7 +37,7 @@ pub(super) fn tool_column_header_menu_ui(
     events: &mut Vec<TableEvent>,
     commands: &mut Vec<TableCommand>,
 ) -> bool {
-    let export = ui.button("Export CSV").clicked();
+    let export = cfg!(not(target_arch = "wasm32")) && ui.button("Export CSV").clicked();
     if export {
         ui.close_kind(UiKind::Menu);
     }
