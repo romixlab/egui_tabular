@@ -272,6 +272,14 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
         self.h.run();
     }
 
+    /// Scroll just enough to bring the row at natural index `row` into view
+    /// (`TableView::scroll_to_row`).
+    pub fn scroll_to_row(&mut self, row: usize) {
+        let uid = self.rows[row];
+        self.h.state_mut().view.scroll_to_row(uid);
+        self.h.run();
+    }
+
     /// Move the pointer off the table.
     pub fn pointer_away(&mut self) {
         self.h.remove_cursor();

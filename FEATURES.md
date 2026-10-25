@@ -90,8 +90,9 @@ The view must degrade per column, never panic or show broken UI. Features that n
 
 ### Non-goals
 
-- An Excel or Google Sheets replacement: no formulas, merged cells, multiple disjoint selections,
-  or charts.
+- An Excel or Google Sheets replacement: no formulas, multiple disjoint selections, charts, or
+  spreadsheet-style merged cells (merging and unmerging by the user, editing a merged cell).
+  Read-only row spans that the model reports are in ([VIEW-16](#table-view)).
 - Tables whose row uids can't be enumerated (see the DESIGN-8 known limit). Not a redesign if
   needed later.
 
@@ -119,6 +120,7 @@ The view must degrade per column, never panic or show broken UI. Features that n
 | `src/table_view/layout.rs` | `RowLayout` (anchor-based vertical scrolling, row order, row heights by `RowUid`) and `ColumnWidths` (by column). Unit-tested. |
 | `src/table_view/scroll_bar.rs` | Row-proportional vertical scroll bar. |
 | `src/table_view/interaction.rs` | Keyboard handling, copy, paste (+ paste modal), selection moves. |
+| `src/table_view/spans.rs` | Row spans (VIEW-16): span lookup in display rows, selection snapping and unit moves, drawing the spans after the rows. Unit-tested. |
 | `src/table_view/state.rs` | `State` (incl. the edit buffer, command queue, pending events) and `SelectedRange` (selection + editing coord). |
 | `src/table_view/tool_column.rs` | Left "tool" column: row numbers and context menus. |
 | `src/table_view/config.rs` | `TableViewConfig` (serializable view settings and saved view state: column order, widths, hidden columns, sort, filter). |
@@ -128,7 +130,7 @@ The view must degrade per column, never panic or show broken UI. Features that n
 | `src/backends/variant.rs` | `VariantTable`: in-memory `HashMap<CellCoord, Variant>` model, `ColumnDef`. |
 | `src/importers/` | `TabularImporter` (file picker + CSV options UI), `CsvImporter`, `RequiredColumns` (name/synonym mapping). |
 | `src/util.rs` | `base_26` column names, encoding detection, cell text for copy/export, CSV export. |
-| `demos/simple`, `demos/derive_row`, `demos/csv_xls_import` | Example apps. |
+| `demos/simple`, `demos/derive_row`, `demos/csv_xls_import`, `demos/row_spans` | Example apps. `row_spans`: a day's schedule with bookings spanning time slots. |
 | `tests/ui/` | Integration test target `ui` of the root crate: headless UI tests (egui_kittest): selection, editing, keyboard, column drag & resize, paste, model contract (custom models, row builder, events). `fixture.rs` holds the harness helpers, generic over model and cell UI. Known bugs have `#[ignore = "<ID>: ..."]` repro tests. See AGENTS.md, "UI tests". |
 | `tests/Cargo.toml`, `tests/src/` | Workspace package `tests`: derive macro tests (values, format, tuple structs, visibility). |
 
@@ -165,6 +167,7 @@ selection, the edit buffer, and paste state. It changes the model only through q
 | Move rows (drag in the tool column) | 💡 idea | Needs a model-side order (`move_rows`), since the view's row order is otherwise natural or sorted. |
 | Hierarchical rows (expand a frame into decoded signals, group by) | 💡 idea | U3. Would be a view-side row-order stage after filter/sort; tree depth drawn in the tool column. |
 | Row uid contract (stable for a row's life, never reused) | ✅ done | Documented on `TableModel`; `RowUid` is `u64`. `VariantTable::clear` no longer restarts uids at 0. Derived tables use row indices (documented). |
+| Row-spanning cells (read-only, from the model) | ✅ done | VIEW-16: `TableModel::row_span(coord) -> Option<RowSpan { first, rows }>`, answered for every covered cell, so a span starting above the viewport is found without scanning upwards. One column wide. Shown in the natural row order only; a sorted or filtered view draws every cell alone. See Table view. |
 | Batched value access for copy/export | ✅ done | `TableModel::row_values` with a per-cell default; copy and export call it once per row ([DESIGN-10](#design-10-row-builder-for-cell-ui)). |
 
 ### `VariantTable` and the built-in cell UI (`VariantCellUi`)
@@ -241,6 +244,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Find (Ctrl+F): highlight matches, next/previous | 📋 planned | Distinct from filtering; uses `get()`/`CellUi::text()`. [DESIGN-13](#design-13-sort-and-filter-stability-and-ui). |
 | Hide columns and a column chooser to show them again | ✅ done | VIEW-14: "Hide" in the column header menu and a "Columns" checkbox list (every column in the user's order) in the tool-column header menu; both write `TableViewConfig::hidden_columns` and emit `TableEvent::ConfigChanged`. The chooser stays open while columns are toggled. Tests: `columns::{hide_in_header_menu_hides_the_column, column_chooser_shows_hidden_columns_again}`. |
 | Demo of sort, filter and saved view state | ✅ done | `demos/simple`: quick filter box (`RowFilter::quick`), a Status combo box (`ColumnFilter::OneOf`), a `Date` column (`FormattedCellUi`), "N of M rows" (`TableView::row_counts`), a right side panel with the active row's values (`TableEvent::RowClicked`, `TableView::active_row`), and `TableViewConfig` saved with eframe persistence (sort, filter, hidden columns, order, widths). |
+| Row spans ([VIEW-16](#table-view)) | ✅ done | A cell the model reports as spanning rows is drawn once over its rows (the first row's content via `CellUi::show_row` for that one column, an opaque background over the covered rows' stripes), also when it starts above the viewport, clipped there; heights follow uniform and heterogeneous rows (span content doesn't grow the rows). One unit for hover, click (`RowClicked` names the first row), selection (cell ranges grow until no span sticks out; whole-row selections don't) and arrow keys (move onto and off a span whole). Never edited. Not yet: column spans, a label kept in view while a tall span scrolls. Demo `demos/row_spans`; tests `tests/ui/spans.rs`, `spans::tests`. |
 | Frozen (pinned) left columns; tool column stays while scrolling sideways | 📋 planned | Listed under "Not done yet" in DESIGN-9. Pinned columns are a `TableViewConfig` list. |
 | Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
@@ -339,7 +343,7 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 
 | Input | Context | Behavior |
 |-------|---------|----------|
-| Click cell | — | Select cell. Commits the edit if another cell was being edited. |
+| Click cell | — | Select cell. Commits the edit if another cell was being edited. A click anywhere on a row span selects the whole span. |
 | Click selected cell | Not read-only | Enter edit mode. |
 | Shift+click cell | — | Grow selection bounding box (cannot shrink, [SEL-3](#sel-3)). |
 | Click / Shift+click tool column | — | Select row / extend row selection. Commits an in-progress edit. |
@@ -351,7 +355,7 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | Double-click column right edge | — | Return the column to auto width and re-fit it to the header and visible rows, eased (tool column: default width). |
 | Mouse wheel | Pointer over table | Scroll rows; Shift+wheel scrolls horizontally. |
 | Drag / click scroll bar | — | Drag the thumb, or click the track to jump there. |
-| Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. |
+| Arrows (+Shift) | Not editing | Move (grow) selection and scroll the moved edge into view. A row span is one unit: moving onto it selects it whole and reveals it, the next move leaves it (VIEW-16). |
 | `E` | Not editing, editable, single cell | Start editing. |
 | `N` | Not editing, rows can be created | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
 | Ctrl+A / Cmd+A | Not editing | Select all. |
@@ -1030,7 +1034,9 @@ out the table itself.
   the anchored row on screen. If the anchor row disappears, the view stays at its index.
 - **Stick to bottom.** If the last row was in view, appended rows keep the view at the end.
 - **Reveal.** `RowLayout::reveal(idx)` scrolls minimally to bring a row fully into view; arrow keys
-  use it.
+  use it. `reveal_range` does the same for a row span (its top if it is taller than the viewport).
+- **Row spans** ([VIEW-16](#table-view)) are collected while the rows are laid out, at the span's first
+  row or the first row in view, and drawn after all rows, when this frame's heights are known.
 - **Scroll bar** is drawn by the view and works in rows: thumb length = rows in view / row count,
   position = fractional index of the top row. With very uneven row heights the thumb speed varies
   slightly. Mouse wheel delta is consumed only when the table actually scrolled.

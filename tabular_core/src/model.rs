@@ -178,6 +178,15 @@ pub enum RowPosition {
     After(RowUid),
 }
 
+/// Rows covered by a cell that spans several rows of its column, from [`TableModel::row_span`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RowSpan {
+    /// The span's first row.
+    pub first: RowUid,
+    /// Number of rows covered in the natural row order, `first` included.
+    pub rows: usize,
+}
+
 /// Table data: rows, columns and cell values. Presentation (order, selection, editing) belongs
 /// to the view.
 ///
@@ -232,6 +241,19 @@ pub trait TableModel {
     fn is_row_skipped(&self, row: RowUid) -> bool {
         let _ = row;
         false
+    }
+    /// The span covering `coord`, if the cell is part of a cell that spans several rows of its
+    /// column (e.g. a booking over several time slots). Answer it for every row of the span, not
+    /// only the first: the view asks about the cells it lays out and so finds a span that starts
+    /// above the viewport without scanning upwards. Called for every visible cell each frame, so
+    /// keep it cheap. `None` (the default) or a span of one row: a plain cell.
+    ///
+    /// Spans are read-only: the view draws the first row's cell over the whole span, selects and
+    /// moves over it as one unit, and never edits it. They are shown while the view shows the
+    /// natural row order; a sorted or filtered view draws every cell on its own.
+    fn row_span(&self, coord: CellCoord) -> Option<RowSpan> {
+        let _ = coord;
+        None
     }
 
     fn set(&mut self, coord: CellCoord, value: Variant) -> Result<(), ModelError> {

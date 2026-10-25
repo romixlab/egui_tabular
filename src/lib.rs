@@ -22,7 +22,7 @@ pub use rvariant;
 pub use tabular_core;
 pub use tabular_core::{
     Capabilities, CellCoord, CellLevel, CellMetadata, ColumnInfo, ColumnUid, ModelError, Revision,
-    Rgb, RowPosition, RowUid, SortDirection, SortKey, TableModel, WrapMode,
+    Rgb, RowPosition, RowSpan, RowUid, SortDirection, SortKey, TableModel, WrapMode,
 };
 
 pub use tabular_derive::TabularRow;

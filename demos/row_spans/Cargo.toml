@@ -1,0 +1,10 @@
+[package]
+name = "row_spans"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+egui_tabular.workspace = true

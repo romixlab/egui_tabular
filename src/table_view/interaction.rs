@@ -38,7 +38,7 @@ impl TableView {
                 count: 1,
             });
         }
-        self.handle_selection_moves(caps, ui);
+        self.handle_selection_moves(model, caps, ui);
     }
 
     /// The selected cells as tab-separated text.
@@ -287,7 +287,12 @@ impl TableView {
         });
     }
 
-    fn handle_selection_moves(&mut self, caps: Capabilities, ui: &mut Ui) {
+    fn handle_selection_moves<M: TableModel>(
+        &mut self,
+        model: &M,
+        caps: Capabilities,
+        ui: &mut Ui,
+    ) {
         let (left, right, up, down, edit, shift) = ui.input(|i| {
             (
                 i.key_pressed(Key::ArrowLeft),
@@ -298,26 +303,55 @@ impl TableView {
                 i.modifiers.shift,
             )
         });
-        let row_count = self.state.rows.len();
+        let s = &mut self.state;
+        let row_count = s.rows.len();
+        let col_count = s.columns_ordered.len();
         if left || right || up || down {
-            if let Some(already_selected) = &mut self.state.selected_range {
+            if s.selected_range.is_none() {
+                if row_count > 0 && col_count > 0 {
+                    s.selected_range = Some(s.unit_at(model, &s.columns_ordered, 0, 0));
+                }
+            } else if !shift && s.selection_is_unit(model, &s.columns_ordered) {
+                // One cell or one row span moves as a unit, onto the next cell or span.
+                for (pressed, dr, dc) in [(left, 0, -1), (right, 0, 1), (up, -1, 0), (down, 1, 0)] {
+                    let Some(r) = s.selected_range.filter(|_| pressed) else {
+                        continue;
+                    };
+                    let row = match dr {
+                        -1 => r.row_start().checked_sub(1),
+                        1 => Some(r.row_end() + 1).filter(|&row| row < row_count),
+                        _ => Some(r.row_start()),
+                    };
+                    let col = match dc {
+                        -1 => r.col_start().checked_sub(1),
+                        1 => Some(r.col_start() + 1).filter(|&col| col < col_count),
+                        _ => Some(r.col_start()),
+                    };
+                    if let (Some(row), Some(col)) = (row, col) {
+                        let unit = s.unit_at(model, &s.columns_ordered, row, col);
+                        if dr != 0 || unit.height() > 1 {
+                            s.rows.reveal_range(unit.row_start(), unit.row_end());
+                        }
+                        s.selected_range = Some(unit);
+                    }
+                }
+            } else if let Some(already_selected) = &mut s.selected_range {
                 if left {
                     already_selected.move_left(shift);
                 }
                 if right {
-                    already_selected.move_right(shift, self.state.columns_ordered.len());
+                    already_selected.move_right(shift, col_count);
                 }
                 if up {
                     already_selected.move_up(shift);
-                    self.state.rows.reveal(already_selected.row_start());
+                    s.rows.reveal(already_selected.row_start());
                 }
                 if down {
                     already_selected.move_down(shift, row_count);
-                    self.state.rows.reveal(already_selected.row_end());
+                    s.rows.reveal(already_selected.row_end());
                 }
-            } else if row_count > 0 && !self.state.columns_ordered.is_empty() {
-                self.state.selected_range = Some(SelectedRange::single_cell(0, 0));
             }
+            s.grow_selection_to_spans(model);
         }
         if edit && caps.edit_cells {
             self.edit_selected_cell();

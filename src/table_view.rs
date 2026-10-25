@@ -2,6 +2,7 @@ pub mod config;
 mod interaction;
 mod layout;
 mod scroll_bar;
+mod spans;
 mod state;
 mod tool_column;
 
@@ -429,6 +430,8 @@ impl TableView {
             return ui.label("No columns, but can paste tabular data from clipboard");
         }
 
+        // A row span is selected whole, also after a Shift+click in the last frame.
+        self.state.grow_selection_to_spans(model);
         if pointer_over_table && !self.state.is_editing() {
             self.handle_key_input(model, cell_ui, caps, ui);
         } else if pointer_over_table && self.state.is_editing() {
@@ -1087,6 +1090,8 @@ impl TableView {
         let mut y = (top - offset).round_ui();
         let mut row_idx = start;
         let mut outline = Vec::new();
+        let natural_order = s.row_natural.is_none();
+        let mut spans = Vec::new();
         while row_idx < s.rows.len() && y < top + height {
             let row_uid = s.rows.rows()[row_idx];
             let estimate = Rangef::new(y, y + s.rows.height(row_idx));
@@ -1104,6 +1109,44 @@ impl TableView {
             for (slot_idx, slot) in slots.iter().enumerate() {
                 let cell_bg = painter.add(Shape::Noop);
                 let col_idx = slot_idx.wrapping_sub(first_data_slot);
+                // A cell covered by a row span is drawn with the span, after all rows.
+                if let ColumnKey::Data(col_uid) = slot.key
+                    && let Some((first_idx, last_idx)) =
+                        spans::span_at(model, &s.rows, natural_order, row_idx, col_uid)
+                {
+                    if row_idx == first_idx || row_idx == start {
+                        let first_row = s.rows.rows()[first_idx];
+                        spans.push(spans::SpanCell {
+                            slot: *slot,
+                            col_idx,
+                            col_uid,
+                            first_idx,
+                            last_idx,
+                            first_row,
+                            owner_idx: row_idx,
+                            owner_y: y,
+                            skipped: model.is_row_skipped(first_row)
+                                || s.columns.get(&col_uid).is_some_and(|c| c.is_skipped),
+                        });
+                    }
+                    let hidden = cell_child_ui(
+                        ui,
+                        grid,
+                        slot.rect(estimate),
+                        false,
+                        true,
+                        id.with(("cell", row_uid, slot.key)),
+                        Sense::hover(),
+                    );
+                    data_cells.push(CellSlot {
+                        ui: hidden,
+                        shown: false,
+                        level: None,
+                        tooltips: vec![],
+                    });
+                    data_slots.push((slot, col_idx, cell_bg, false, false, true));
+                    continue;
+                }
                 let is_editing_current_cell = matches!(slot.key, ColumnKey::Data(_))
                     && s.selected_range
                         .map(|r| {
@@ -1182,7 +1225,14 @@ impl TableView {
                     level: None,
                     tooltips: vec![],
                 });
-                data_slots.push((slot, col_idx, cell_bg, is_editing_current_cell, skipped));
+                data_slots.push((
+                    slot,
+                    col_idx,
+                    cell_bg,
+                    is_editing_current_cell,
+                    skipped,
+                    false,
+                ));
             }
             cell_ui.show_row(
                 model,
@@ -1253,9 +1303,12 @@ impl TableView {
                 }
             }
 
-            for (cell, (slot, col_idx, cell_bg, is_editing_current_cell, skipped)) in
+            for (cell, (slot, col_idx, cell_bg, is_editing_current_cell, skipped, covered)) in
                 data_cells.into_iter().zip(data_slots)
             {
+                if covered {
+                    continue;
+                }
                 if !is_editing_current_cell {
                     s.column_widths
                         .observe(slot.key, cell.ui.min_rect().width() + 2.0 * pad.x);
@@ -1393,6 +1446,23 @@ impl TableView {
             row_idx += 1;
         }
 
+        let shift = ctx.input(|i| i.modifiers.shift);
+        spans::show_span_cells(
+            s,
+            model,
+            cell_ui,
+            ui,
+            &spans::SpanFrame {
+                grid,
+                painter: &painter,
+                hover_pos,
+                shift,
+                reach: 2.0 * height,
+            },
+            spans,
+            &mut outline,
+            &mut commit_edit,
+        );
         painter.add(Shape::Vec(outline));
         s.rows.finish_layout(row_idx, y - top, height);
         if repaint {

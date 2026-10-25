@@ -15,3 +15,4 @@ mod order;
 mod paste;
 mod selection;
 mod sorting;
+mod spans;

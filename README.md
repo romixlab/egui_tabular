@@ -32,6 +32,7 @@ TODO: Add web demo.
 * [x] Ability to add lints to cells and change their background color.
     * [ ] Add icons
 * [x] Support for cells with varying heights.
+* [x] Read-only cells spanning several rows, reported by the model (`TableModel::row_span`), e.g. bookings in a schedule.
 * [x] Resizable, auto-sized columns.
 * [x] Scroll position anchored to a row: stays put when rows are inserted above.
 * [x] Drag&drop column reordering.
@@ -64,7 +65,7 @@ See `demos/` and `#[derive(TabularRow)]`.
 
 ## Non-goals
 
-* Become Excel or G.Sheets replacement.
+* Become Excel or G.Sheets replacement (no merging or editing of merged cells; read-only row spans from the model are supported).
 
 ## Potential features
 

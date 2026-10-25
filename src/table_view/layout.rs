@@ -29,7 +29,8 @@ struct Anchor {
 
 #[derive(Copy, Clone, Debug)]
 enum Reveal {
-    Index(usize),
+    /// First and last row of a range to bring into view.
+    Range(usize, usize),
     Row(RowUid),
 }
 
@@ -170,7 +171,33 @@ impl RowLayout {
 
     /// Scroll just enough to bring the row at `idx` fully into view on the next layout.
     pub(super) fn reveal(&mut self, idx: usize) {
-        self.reveal = Some(Reveal::Index(idx));
+        self.reveal_range(idx, idx);
+    }
+
+    /// Like [`Self::reveal`] for the rows `first..=last` (a row span): its top is kept in view
+    /// if the range is taller than the viewport.
+    pub(super) fn reveal_range(&mut self, first: usize, last: usize) {
+        self.reveal = Some(Reveal::Range(first, last.max(first)));
+    }
+
+    /// Height of the rows `from..to`, summed until it exceeds `cap`. For the extent of a row
+    /// span: what lies further than `cap` from the viewport is clipped anyway.
+    pub(super) fn height_of(&self, from: usize, to: usize, cap: f32) -> f32 {
+        let to = to.min(self.rows.len());
+        if from >= to {
+            return 0.0;
+        }
+        if self.uniform {
+            return ((to - from) as f32 * self.default_height).min(cap.max(self.default_height));
+        }
+        let mut sum = 0.0;
+        for idx in from..to {
+            sum += self.height(idx);
+            if sum > cap {
+                break;
+            }
+        }
+        sum
     }
 
     /// Like [`Self::reveal`], for a row that may not be in the display order yet (just created).
@@ -196,25 +223,27 @@ impl RowLayout {
         };
 
         let reveal = match self.reveal {
-            Some(Reveal::Index(idx)) => Some(idx),
-            Some(Reveal::Row(row)) => self.index.get(&row).copied(),
+            Some(Reveal::Range(first, last)) => Some((first, last)),
+            Some(Reveal::Row(row)) => self.index.get(&row).map(|&idx| (idx, idx)),
             None => None,
         };
         // A row that isn't synced yet stays pending; `sync` drops it if it never appears.
         if reveal.is_some() {
             self.reveal = None;
         }
-        if let Some(target) = reveal.filter(|&r| r < len) {
-            if target < idx || (target == idx && offset > 0.0) {
-                idx = target;
+        if let Some((first, last)) = reveal.filter(|&(first, _)| first < len) {
+            let last = last.min(len - 1);
+            if first < idx || (first == idx && offset > 0.0) {
+                idx = first;
                 offset = 0.0;
             } else {
-                let bottom = (idx..=target).map(|i| self.height(i)).sum::<f32>() - offset;
+                let bottom = (idx..=last).map(|i| self.height(i)).sum::<f32>() - offset;
                 if bottom > viewport_height {
-                    // Align the row's bottom with the viewport bottom, or its top with the
+                    // Align the range's bottom with the viewport bottom, or its top with the
                     // viewport top if it is taller than the viewport.
-                    idx = target;
-                    offset = (self.height(target) - viewport_height).min(0.0);
+                    let range = (first..=last).map(|i| self.height(i)).sum::<f32>();
+                    idx = first;
+                    offset = (range - viewport_height).min(0.0);
                 }
             }
         }
@@ -512,6 +541,40 @@ mod tests {
         l.reveal(3);
         l.normalize(50.0);
         assert_eq!(l.anchor(), (3, 0.0));
+    }
+
+    #[test]
+    fn reveal_range_shows_a_span_whole_or_its_top() {
+        let mut l = layout(100, 10.0);
+        // Rows 20..=23 span 200..240: the viewport bottom goes to 240.
+        l.reveal_range(20, 23);
+        l.normalize(50.0);
+        assert_eq!(l.anchor(), (19, 0.0));
+
+        // Taller than the viewport: its top at the viewport top.
+        l.reveal_range(40, 49);
+        l.normalize(50.0);
+        assert_eq!(l.anchor(), (40, 0.0));
+
+        // Above the viewport: its top at the viewport top.
+        l.reveal_range(30, 32);
+        l.normalize(50.0);
+        assert_eq!(l.anchor(), (30, 0.0));
+    }
+
+    #[test]
+    fn height_of_sums_rows_up_to_a_cap() {
+        let mut l = layout(100, 10.0);
+        l.set_measured(5, 30.0);
+        assert_eq!(l.height_of(4, 7, 1000.0), 50.0);
+        assert_eq!(l.height_of(7, 4, 1000.0), 0.0);
+        assert_eq!(l.height_of(98, 105, 1000.0), 20.0);
+        // Stops at the first row past the cap.
+        assert_eq!(l.height_of(0, 100, 25.0), 30.0);
+
+        l.set_metrics(10.0, true);
+        assert_eq!(l.height_of(4, 7, 1000.0), 30.0);
+        assert_eq!(l.height_of(0, 100, 25.0), 25.0);
     }
 
     #[test]
