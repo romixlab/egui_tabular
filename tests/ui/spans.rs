@@ -17,6 +17,8 @@ struct Schedule {
     columns: Vec<ColumnInfo>,
     /// First row, row count, text.
     bookings: Vec<(usize, usize, &'static str)>,
+    /// Whether rows covered by a booking still answer "b<row>", as a model may.
+    covered_text: bool,
 }
 
 impl Schedule {
@@ -25,6 +27,7 @@ impl Schedule {
             rows: 60,
             columns: (0..2).map(|c| ColumnInfo::new(col_name(c), None)).collect(),
             bookings: vec![(2, 4, "Job1"), (10, 30, "Long")],
+            covered_text: false,
         }
     }
 
@@ -66,8 +69,8 @@ impl TableModel for Schedule {
         let text = match (coord.col_uid.0, self.booking(row)) {
             (0, _) => format!("a{row}"),
             (_, Some((first, _, text))) if first == row => text.to_owned(),
-            (_, Some(_)) => return None,
-            (_, None) => format!("b{row}"),
+            (_, Some(_)) if !self.covered_text => return None,
+            _ => format!("b{row}"),
         };
         Some(Cow::Owned(Variant::Str(text)))
     }
@@ -105,7 +108,10 @@ fn in_b(t: &Table<Schedule, VariantCellUi>, row: usize) -> Pos2 {
 
 #[test]
 fn span_shows_its_text_once() {
-    let t = table();
+    let mut model = Schedule::new();
+    model.covered_text = true;
+    let mut t = Table::custom(model, VariantCellUi);
+    t.h.run();
     assert!(t.has("Job1"));
     assert!(t.has("b1") && t.has("b6"));
     assert!(!t.has("b3"), "covered cells draw nothing of their own");

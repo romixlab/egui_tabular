@@ -321,7 +321,7 @@ mod tests {
     use super::*;
     use tabular_core::{Capabilities, ColumnInfo, Revision, RowSpan};
 
-    /// 20 rows, columns 0 and 1; column 1 has spans over rows 2..=5 and 8..=9.
+    /// 20 rows, columns 0, 1 and 2; column 1 has spans over rows 2..=5 and 8..=9.
     struct Spans(ColumnInfo);
 
     impl TableModel for Spans {
@@ -332,7 +332,7 @@ mod tests {
             Capabilities::NONE
         }
         fn columns(&self) -> impl Iterator<Item = ColumnUid> {
-            [ColumnUid(0), ColumnUid(1)].into_iter()
+            [ColumnUid(0), ColumnUid(1), ColumnUid(2)].into_iter()
         }
         fn column(&self, _col: ColumnUid) -> Option<&ColumnInfo> {
             Some(&self.0)
@@ -358,7 +358,7 @@ mod tests {
     fn state() -> (State, Spans) {
         let mut s = State::default();
         s.rows.sync((0..20).map(RowUid).collect());
-        s.columns_ordered = vec![ColumnUid(0), ColumnUid(1)];
+        s.columns_ordered = vec![ColumnUid(0), ColumnUid(1), ColumnUid(2)];
         (s, Spans(ColumnInfo::new("x", None)))
     }
 
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!((r.row_start(), r.row_end()), (2, 9));
 
         // Whole rows stay whole rows.
-        s.selected_range = Some(SelectedRange::single_row(3, 2));
+        s.selected_range = Some(SelectedRange::single_row(3, 3));
         s.grow_selection_to_spans(&m);
         let r = s.selected_range.unwrap();
         assert_eq!((r.row_start(), r.row_end()), (3, 3));
