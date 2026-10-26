@@ -199,7 +199,6 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
     }
 
     /// Whether the view reported an event matching `f`.
-
     pub fn saw(&self, f: impl Fn(&TableEvent) -> bool) -> bool {
         self.h.state().events.iter().any(f)
     }

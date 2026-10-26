@@ -19,10 +19,10 @@ impl TableView {
     ) {
         // Ctrl+C (Cmd+C on macOS) reaches egui as `Event::Copy`, never as a key press: egui-winit and
         // eframe's web runner turn the shortcut into the event (SEL-5).
-        if ui.input(|i| i.events.iter().any(|e| matches!(e, Event::Copy))) {
-            if let Some(text) = self.selection_text(model, cell_ui) {
-                ui.ctx().copy_text(text);
-            }
+        if ui.input(|i| i.events.iter().any(|e| matches!(e, Event::Copy)))
+            && let Some(text) = self.selection_text(model, cell_ui)
+        {
+            ui.ctx().copy_text(text);
         }
         if ui.input(|i| i.modifiers.command && i.key_pressed(Key::A)) {
             self.state.selected_range = Some(SelectedRange::rect(
