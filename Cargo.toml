@@ -10,7 +10,7 @@ description = "Customizable egui table viewer and editor"
 [workspace]
 members = ["demos/*", "tabular_core", "tabular_derive", "tests"]
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 repository = "https://github.com/romixlab/egui_tabular"
 license = "MIT OR Apache-2.0"
