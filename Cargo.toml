@@ -50,7 +50,7 @@ rfd = "0.17"
 egui_kittest = { version = "0.36", features = ["snapshot", "wgpu"] }
 serde_json = "1"
 
-# For this repo's own builds until rvariant 0.5 and si_dynamic 0.3 are published: sibling checkouts.
+# Until rvariant 0.5 and si_dynamic 0.3 are published: our own repos at fixed tags.
 [patch.crates-io]
-rvariant = { path = "../rvariant" }
-si_dynamic = { path = "../si_dynamic" }
+rvariant = { git = "https://github.com/romixlab/rvariant", tag = "v0.5.1" }
+si_dynamic = { git = "https://github.com/romixlab/si_dynamic", tag = "v0.3.0" }
