@@ -20,7 +20,7 @@ authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 eframe = { version = "0.36", features = ["serde", "persistence"] }
 egui = { version = "0.36" }
 egui_tabular = { path = ".", version = "0.2" }
-rvariant = { path = "../rvariant", features = ["serde"], version = "0.5" }
+rvariant = { version = "0.5", features = ["serde"] }
 strum = { version = "0.28", features = ["derive"] }
 tabular_core = { version = "0.1", path = "./tabular_core" }
 tabular_derive = { version = "0.1", path = "./tabular_derive" }
@@ -42,3 +42,8 @@ strum = { workspace = true }
 tabular_core = { version = "0.2", path = "./tabular_core" }
 tabular_derive = { version = "0.2", path = "./tabular_derive" }
 tap = "1.0"
+
+# For this repo's own builds until rvariant 0.5.1 (si_dynamic by version) is tagged: sibling checkouts.
+[patch.crates-io]
+rvariant = { path = "../rvariant" }
+si_dynamic = { path = "../si_dynamic" }
