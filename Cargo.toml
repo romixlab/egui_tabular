@@ -20,7 +20,7 @@ authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 eframe = { version = "0.36", features = ["serde", "persistence"] }
 egui = { version = "0.36" }
 egui_tabular = { path = ".", version = "0.3" }
-rvariant = { path = "../rvariant", features = ["serde"], version = "0.5" }
+rvariant = { version = "0.5", default-features = false, features = ["serde"] }
 strum = { version = "0.28", features = ["derive"] }
 tabular_core = { version = "0.3", path = "./tabular_core" }
 tabular_derive = { version = "0.3", path = "./tabular_derive" }
@@ -49,3 +49,8 @@ rfd = "0.17"
 [dev-dependencies]
 egui_kittest = { version = "0.36", features = ["snapshot", "wgpu"] }
 serde_json = "1"
+
+# For this repo's own builds until rvariant 0.5 and si_dynamic 0.3 are published: sibling checkouts.
+[patch.crates-io]
+rvariant = { path = "../rvariant" }
+si_dynamic = { path = "../si_dynamic" }
