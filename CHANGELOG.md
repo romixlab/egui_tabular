@@ -21,13 +21,7 @@ All notable changes to this project are documented here. The format follows
 - Row spans (VIEW-16): `TableModel::row_span` reports a cell that covers several rows of its column (`RowSpan { first, rows }`); the view draws it once over those rows, also when it starts above the viewport, and treats it as one unit for hover, click, selection and arrow keys. Read-only, shown in the natural row order. `demos/row_spans` shows a schedule.
 - `just test --changed` runs only the workspace crates changed against main and their dependents (`tpm test changed`, nextest's `rdeps()`); plain `just test` runs everything, as `just test-all` does (tpm ops#22oct-2049).
 - Pinned left columns (VIEW-17): `TableViewConfig::pinned_columns` keeps the tool column and chosen data columns on screen while the rest scrolls sideways; "Pin" in the column header menu toggles it; arrow-key column navigation scrolls the scrollable columns minimally into view and never needs to for a pinned one.
-
 - `TableViewOptions::selectable_text` (VIEW-19, off by default): the cells' text can be selected with a drag and copied; a click on the text still selects the cell.
-
-### Fixed
-
-- Ctrl+C (and Cmd+C on macOS) copies the selection in a real window: egui delivers the shortcut as `Event::Copy`, not as a key press, and the view only listened for the key (SEL-5).
-- The header stays on top: a row scrolled part way up is cut at the header's edge instead of drawing over it and taking its clicks (VIEW-18).
 
 ### Changed
 
@@ -38,6 +32,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Ctrl+C (and Cmd+C on macOS) copies the selection in a real window: egui delivers the shortcut as `Event::Copy`, not as a key press, and the view only listened for the key (SEL-5).
+- The header stays on top: a row scrolled part way up is cut at the header's edge instead of drawing over it and taking its clicks (VIEW-18).
 - Builds for wasm (`wasm32-unknown-unknown`): `rfd` is a native-only dependency; the tool column's Export CSV and the importer's Open button are left out on wasm, which has no blocking file dialog (EXPORT-4).
 - VIEW-15: the selection outline is painted after all row fills and on all four sides, so the row below no longer covers its bottom edge.
 - DND-1: dropping a column header moves the column instead of swapping it with the target.
