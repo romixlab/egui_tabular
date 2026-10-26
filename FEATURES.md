@@ -245,6 +245,8 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Hide columns and a column chooser to show them again | ✅ done | VIEW-14: "Hide" in the column header menu and a "Columns" checkbox list (every column in the user's order) in the tool-column header menu; both write `TableViewConfig::hidden_columns` and emit `TableEvent::ConfigChanged`. The chooser stays open while columns are toggled. Tests: `columns::{hide_in_header_menu_hides_the_column, column_chooser_shows_hidden_columns_again}`. |
 | Demo of sort, filter and saved view state | ✅ done | `demos/simple`: quick filter box (`RowFilter::quick`), a Status combo box (`ColumnFilter::OneOf`), a `Date` column (`FormattedCellUi`), "N of M rows" (`TableView::row_counts`), a right side panel with the active row's values (`TableEvent::RowClicked`, `TableView::active_row`), and `TableViewConfig` saved with eframe persistence (sort, filter, hidden columns, order, widths). |
 | Row spans ([VIEW-16](#table-view)) | ✅ done | A cell the model reports as spanning rows is drawn once over its rows (the first row's content via `CellUi::show_row` for that one column, an opaque background over the covered rows' stripes), also when it starts above the viewport, clipped there; heights follow uniform and heterogeneous rows (span content doesn't grow the rows). One unit for hover, click (`RowClicked` names the first row), selection (cell ranges grow until no span sticks out; whole-row selections don't) and arrow keys (move onto and off a span whole). Never edited. Not yet: column spans, a label kept in view while a tall span scrolls. Demo `demos/row_spans`; tests `tests/ui/spans.rs`, `spans::tests`. |
+| Header stays on top of the scrolled body | ✅ done | VIEW-18: every cell is clipped to the body's band, so a row scrolled part way up is cut at the header's edge and never takes the header's clicks. Tests: `scroll::{a_row_scrolled_under_the_header_is_cut_off_there, header_over_a_scrolled_row_snapshot}`. |
+| Selectable cell text (`TableViewOptions::selectable_text`, off by default) | ✅ done | VIEW-19: body cells (not headers, row numbers, editors or row spans) draw selectable labels; a drag selects text, Ctrl+C copies it; a click, double-click and the cell tooltips still belong to the cell (the label under the pointer stands in for it, focusable widgets keep their own clicks). Off by default because a drag on the text then selects text, not cells. Tests: `selection::{selectable_text_drag_copies_part_of_a_cell, selectable_text_click_still_selects_the_cell, text_is_not_selectable_by_default}`. |
 | Frozen (pinned) left columns; tool column stays while scrolling sideways | ✅ done | VIEW-17: the tool column is always frozen; `TableViewConfig::pinned_columns` lists the data columns pinned after it, in that order; toggled with "Pin" in the column header menu. The rest of the columns scroll in their own `ScrollArea`, to the right of the frozen strip. |
 | Rename column (double-click header), delete rows, insert row above/below | 📋 planned | Remove and insert exist in the model and as commands; rename and the UI come in roadmap step 5. |
 | Stick-to-bottom for live data | 🚧 partial | Always on: if the end of the table is in view, appended rows keep it there. Not configurable (`TableViewOptions::stick_to_bottom` planned). |
@@ -284,7 +286,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Copy selection as TSV (Ctrl+C) | 🐛 buggy | Uses `ctrl` not `command` ([SEL-5](#sel-5)). One `row_values` lookup per row; `CellUi::text` where the model has no value. |
+| Copy selection as TSV (Ctrl+C) | ✅ done | On `Event::Copy`, which egui-winit and eframe's web runner send for Ctrl+C / Cmd+C (SEL-5). One `row_values` lookup per row; `CellUi::text` where the model has no value. With `selectable_text`, highlighted text wins (VIEW-19). |
 | Paste TSV block into selection | 🐛 buggy | See [PASTE-*](#paste). |
 | Paste into empty table creates columns and rows | ✅ done | |
 | Paste dialog for size mismatch (create rows, repeat fill, create columns) | 🐛 buggy | [PASTE-1](#paste-1) – [PASTE-4](#paste-4). |
@@ -332,7 +334,7 @@ Use case U3 ([Goals](#goals-use-cases-and-targets)). Design in
 | Right-to-left layout | 💡 idea | Not planned unless asked for. |
 | wasm | 🚧 partial | Builds for `wasm32-unknown-unknown` (tpm_mesh_dash's web tasks table uses it); `rfd` is a native-only dependency, so the importer's Open button and the tool column's Export CSV are left out there ([EXPORT-4](#export-4), DESIGN-7). No web demo (README TODO). |
 | Touch | 🐛 buggy | No drag-to-scroll ([VIEW-8](#view-8)); resize handles are thin. |
-| macOS shortcuts (Cmd) | 🐛 buggy | [SEL-5](#sel-5). |
+| macOS shortcuts (Cmd) | ✅ done | Copy, paste and select all take Cmd (SEL-5 fixed: copy and paste arrive as events). |
 
 ---
 
@@ -359,7 +361,8 @@ the **mouse pointer is over the table**, not based on focus ([SEL-4](#sel-4)).
 | `E` | Not editing, editable, single cell | Start editing. |
 | `N` | Not editing, rows can be created | Append row and scroll to it. Also fires while typing in other widgets ([SEL-4](#sel-4)). |
 | Ctrl+A / Cmd+A | Not editing | Select all. |
-| Ctrl+C | Not editing | Copy TSV. Cmd+C on macOS doesn't work ([SEL-5](#sel-5)). |
+| Ctrl+C / Cmd+C | Not editing | Copy TSV (`Event::Copy`, SEL-5); with `selectable_text` and text highlighted, that text (VIEW-19). |
+| Drag over a cell's text | `selectable_text` (VIEW-19) | Select part of the text; a click on the text still selects the cell. |
 | Ctrl/Cmd+V | Not editing, editable | Paste. Without a selection: `TableEvent::Message`. |
 | Enter | Editing | Commit. Also fires if Enter was pressed elsewhere ([EDIT-6](#edit-6)). Bool and Enum editors commit on change. |
 | Escape | Editing | Cancel edit. |
@@ -468,11 +471,6 @@ the bugs it caused (EDIT-1, EDIT-2, EDIT-4) are gone. The rest is the edit lifec
 - Effect: with the pointer over the table, typing `n` in another TextEdit appends rows, `e` starts editing, pasting into another field also pastes into the table, and Ctrl+C copies the table. Moving the mouse away disables table navigation.
 - Fix: track table focus (focusable table response or a "table active" flag set on click). Also skip handling when `ctx.wants_keyboard_input()` and the focused widget isn't ours.
 - Test (ignored, fails): `keyboard::keyboard_works_without_pointer_over_table`.
-
-#### SEL-5
-**Copy uses `modifiers.ctrl`.** — *minor*
-- `interaction.rs:15`. Cmd+C on macOS doesn't work (egui issue #4065). Prefer handling `Event::Copy`.
-- Test (ignored, fails): `selection::cmd_c_copies_on_mac`.
 
 ### Paste
 
@@ -1418,6 +1416,8 @@ Move entries here when fixed (keep the ID, add the commit hash and a one-line no
 
 | ID | Fixed in | Note |
 |----|----------|------|
+| SEL-5 | this branch | Ctrl+C did nothing in a real window on any OS, not only Cmd+C on macOS: egui-winit and eframe's web runner turn the shortcut into `Event::Copy` and send no `Key::C` press, while the view only looked for the key. It copies on `Event::Copy` now; the fixture's `copy()` sends the event as a backend does (it had pressed `Key::C`, which hid the bug). Tests: `selection::{the_copy_event_copies_the_selection, cmd_c_copies_on_mac}`. |
+| VIEW-18 | this branch | Rows scrolled part way up drew over the header and took its clicks: the body narrowed its band clip, but each cell clipped with its slot's clip, whose height was the whole table's. |
 | VIEW-15 | this branch | The selection outline was painted per cell, before the next row's fill, so the row below (hover or stripe) covered the shared bottom edge, and it had only top and bottom lines. Now one foreground stage after the body paints all four edges, inset by half the stroke. Test: `tests/ui/hover.rs` snapshot. |
 | VIEW-1 | `bf0d2d8` | Body iterates the view's row order, resynced after the header and on row count change; no `unwrap`. (DESIGN-9) |
 | VIEW-2 | `bf0d2d8` | Row heights cached by `RowUid`. (DESIGN-9) |

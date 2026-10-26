@@ -192,7 +192,14 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
         self.h.run();
     }
 
+    /// Change the view's options (`TableViewOptions`) and redraw.
+    pub fn options(&mut self, change: impl FnOnce(&mut TableViewOptions)) {
+        change(self.h.state_mut().view.options_mut());
+        self.h.run();
+    }
+
     /// Whether the view reported an event matching `f`.
+
     pub fn saw(&self, f: impl Fn(&TableEvent) -> bool) -> bool {
         self.h.state().events.iter().any(f)
     }
@@ -206,7 +213,7 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
     /// to check the current selection.
     pub fn copy(&mut self) -> Option<String> {
         self.h.state_mut().copied = None;
-        self.ctrl(Key::C);
+        self.press_copy();
         self.h.state().copied.clone()
     }
 
@@ -258,6 +265,30 @@ impl<M: TableModel + 'static, C: CellUi<M> + 'static> Table<M, C> {
 
     pub fn press_modifiers(&mut self, modifiers: Modifiers, key: Key) {
         self.h.key_press_modifiers(modifiers, key);
+        self.h.run();
+    }
+
+    /// Ctrl+C (Cmd+C on macOS) as egui-winit and eframe's web runner deliver it: `Event::Copy`,
+    /// no key press.
+    /// The copied text is read from the frame's whole output: egui copies selected label text at
+    /// the end of the pass, after the app's UI ran.
+    pub fn press_copy(&mut self) {
+        self.h.event(Event::Copy);
+        self.h.step();
+        let copied = self
+            .h
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .rev()
+            .find_map(|c| match c {
+                OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            });
+        if copied.is_some() {
+            self.h.state_mut().copied = copied;
+        }
         self.h.run();
     }
 

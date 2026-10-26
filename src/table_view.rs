@@ -134,6 +134,19 @@ fn finish_cell(mut ui: Ui, rect: Rect) -> Response {
     ui.response()
 }
 
+/// With [`TableViewOptions::selectable_text`], a cell's text is a label that senses clicks and
+/// drags (to select text) on top of the cell: the label under the pointer inside `cell` (the cell's
+/// visible rect), whose clicks, double-clicks and hover are then the cell's. Widgets that take
+/// focus (buttons, editors) are not text and keep their clicks.
+fn text_under_pointer(ui: &Ui, cell: Rect) -> Option<Response> {
+    let ctx = ui.ctx();
+    let pos = ctx.pointer_interact_pos().filter(|p| cell.contains(*p))?;
+    let id = ctx.viewport(|v| v.hits.click.map(|w| w.id))?;
+    let r = ctx.read_response(id)?;
+    (r.layer_id == ui.layer_id() && r.interact_rect.contains(pos) && !r.sense.is_focusable())
+        .then_some(r)
+}
+
 /// View settings chosen by the app. User preferences live in [`TableViewConfig`].
 pub struct TableViewOptions {
     /// Salts every id of the view, so that several tables can share a `Ui`.
@@ -152,6 +165,11 @@ pub struct TableViewOptions {
     pub sort_indicator: SortIndicatorOptions,
     /// Show each column's type (`ColumnInfo::type_text`) under its name. Default: true.
     pub header_types: bool,
+    /// The cells' text can be selected with a drag and copied (Ctrl+C copies what is highlighted:
+    /// the selected text, else the selected cells). A click on the text still selects its cell,
+    /// a double-click still double-clicks it. Drag-selecting cells (planned) then starts only
+    /// outside the text. Default: false.
+    pub selectable_text: bool,
 }
 
 /// The sort control at the right edge of sortable column headers (SORT-2): click sorts by the
@@ -192,6 +210,7 @@ impl Default for TableViewOptions {
             row_order: RowOrderOptions::default(),
             sort_indicator: SortIndicatorOptions::default(),
             header_types: true,
+            selectable_text: false,
         }
     }
 }
@@ -1216,7 +1235,23 @@ impl TableView {
         let clip = grid
             .clip
             .intersect(Rect::from_x_y_ranges(grid.clip.x_range(), body));
-        let grid = &Grid { clip, ..*grid };
+        // Each cell clips to its slot: narrowed to the body too, or a row scrolled part way up would
+        // draw over the header and take its clicks (VIEW-18).
+        let body_slots: Vec<Slot> = grid
+            .slots
+            .iter()
+            .map(|slot| Slot {
+                clip: slot
+                    .clip
+                    .intersect(Rect::from_x_y_ranges(slot.clip.x_range(), body)),
+                ..*slot
+            })
+            .collect();
+        let grid = &Grid {
+            clip,
+            slots: &body_slots,
+            ..*grid
+        };
         let Grid { slots, pad, id, .. } = *grid;
         let ctx = ui.ctx().clone();
         let style = ui.style().clone();
@@ -1237,6 +1272,7 @@ impl TableView {
         let hover_pos = ctx
             .pointer_hover_pos()
             .filter(|_| ui.rect_contains_pointer(clip));
+        let selectable_text = self.options.selectable_text;
         let s = &mut self.state;
         let mut commit_edit = None;
         let mut repaint = false;
@@ -1332,6 +1368,9 @@ impl TableView {
                 if is_editing_cell_on_this_row {
                     cell.style_mut().visuals.override_text_color =
                         Some(visual.selection.stroke.color);
+                }
+                if selectable_text && !is_editing_current_cell {
+                    cell.style_mut().interaction.selectable_labels = true;
                 }
                 let col_uid = match slot.key {
                     ColumnKey::Tool => {
@@ -1481,7 +1520,12 @@ impl TableView {
                 }
                 let cell_rect = slot.rect(y_range);
                 let content_rect = cell.ui.max_rect();
+                let text = selectable_text
+                    .then(|| text_under_pointer(&cell.ui, cell.ui.clip_rect().intersect(cell_rect)))
+                    .flatten();
                 let resp = finish_cell(cell.ui, cell_rect);
+                // the cell's own response, or its text's where that took the pointer
+                let resp = text.unwrap_or(resp);
                 let ColumnKey::Data(col_uid) = slot.key else {
                     continue;
                 };

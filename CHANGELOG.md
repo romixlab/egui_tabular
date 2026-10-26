@@ -22,6 +22,13 @@ All notable changes to this project are documented here. The format follows
 - `just test --changed` runs only the workspace crates changed against main and their dependents (`tpm test changed`, nextest's `rdeps()`); plain `just test` runs everything, as `just test-all` does (tpm ops#22oct-2049).
 - Pinned left columns (VIEW-17): `TableViewConfig::pinned_columns` keeps the tool column and chosen data columns on screen while the rest scrolls sideways; "Pin" in the column header menu toggles it; arrow-key column navigation scrolls the scrollable columns minimally into view and never needs to for a pinned one.
 
+- `TableViewOptions::selectable_text` (VIEW-19, off by default): the cells' text can be selected with a drag and copied; a click on the text still selects the cell.
+
+### Fixed
+
+- Ctrl+C (and Cmd+C on macOS) copies the selection in a real window: egui delivers the shortcut as `Event::Copy`, not as a key press, and the view only listened for the key (SEL-5).
+- The header stays on top: a row scrolled part way up is cut at the header's edge instead of drawing over it and taking its clicks (VIEW-18).
+
 ### Changed
 
 - **Breaking:** the core contract is new (DESIGN-8): `TableBackend`/`TableFrontend` and the flag system are replaced by `tabular_core::TableModel` (egui-free) and `CellUi` with the row builder, a `TableCommand` queue, `TableViewOptions`/`TableViewOutput`/`TableEvent`; `VariantBackend` is `VariantTable`, the derive macro generates `<Row>Table`. Apps on 0.2 port to these types; the renames below are breaking too.

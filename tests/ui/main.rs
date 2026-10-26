@@ -13,6 +13,7 @@ mod keyboard;
 mod model;
 mod order;
 mod paste;
+mod scroll;
 mod selection;
 mod sorting;
 mod spans;

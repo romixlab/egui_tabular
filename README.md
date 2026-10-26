@@ -75,7 +75,7 @@ See `demos/` and `#[derive(TabularRow)]`.
 ## Keyboard shortcuts
 
 * Ctrl+V - paste block
-* Ctrl+C - copy block
+* Ctrl+C (Cmd+C) - copy block, or the highlighted text with `TableViewOptions::selectable_text`
 * Ctrl+A - select all (when not editing)
 * Tab - commit edit and edit cell to the right
 * E - edit cell

@@ -17,8 +17,9 @@ impl TableView {
         caps: Capabilities,
         ui: &mut Ui,
     ) {
-        if ui.input(|i| i.modifiers.ctrl && i.key_pressed(Key::C)) {
-            // command+C don't work: https://github.com/emilk/egui/issues/4065
+        // Ctrl+C (Cmd+C on macOS) reaches egui as `Event::Copy`, never as a key press: egui-winit and
+        // eframe's web runner turn the shortcut into the event (SEL-5).
+        if ui.input(|i| i.events.iter().any(|e| matches!(e, Event::Copy))) {
             if let Some(text) = self.selection_text(model, cell_ui) {
                 ui.ctx().copy_text(text);
             }
