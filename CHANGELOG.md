@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Dependency: `si_dynamic`'s git source now points at `github.com/romixlab/napier` (the repo was renamed 2 Nov 2026); same tag `v0.3.0`, same commit.
 - On rvariant 0.5 (si_dynamic 0.3 units). No code changes were needed. The built-in enum editor lists `Variant::Enum` variants, which a value loaded from JSON only has after `Variant::restore(ty)` (rvariant 0.4: enum values store only the selection), so restore values before they reach a `VariantTable`.
 - **Breaking:** the core contract is new (DESIGN-8): `TableBackend`/`TableFrontend` and the flag system are replaced by `tabular_core::TableModel` (egui-free) and `CellUi` with the row builder, a `TableCommand` queue, `TableViewOptions`/`TableViewOutput`/`TableEvent`; `VariantBackend` is `VariantTable`, the derive macro generates `<Row>Table`. Apps on 0.2 port to these types; the renames below are breaking too.
 - `DateFormats` is now `CellFormats` and `DateCellUi` is `FormattedCellUi`: the formats cover more than dates.
