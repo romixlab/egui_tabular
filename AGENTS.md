@@ -11,9 +11,9 @@ ported. If a cleaner design needs an API break, make the break and record it in 
 
 ## Versions and the changelog
 
-The version in `Cargo.toml` is the next crates.io release (`bump = "at-publish"` in tpm's repos.toml).
+The version in `Cargo.toml` is the next crates.io release (`bump = "at-publish"` in our release config).
 Work commits and landings never change it and never tag: their CHANGELOG entries go under
-`[Unreleased]`, a breaking change says so (`**Breaking:** ...`). `tpm release egui_tabular` turns
+`[Unreleased]`, a breaking change says so (`**Breaking:** ...`). A release step turns
 `[Unreleased]` into the version's section and tags it, right before publishing.
 
 ## FEATURES.md is the source of truth
