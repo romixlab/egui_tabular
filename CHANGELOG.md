@@ -5,10 +5,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Docs
-
-- docs: internal references removed.
-
 ### Added
 
 - Sorting (SORT-1): `TableViewConfig::sort` takes multi-key `SortKey`s; stable; numbers by value, text case-insensitive and empties last (`RowOrderOptions`); `CellUi::compare` for custom columns; `TableModel::sorted_rows` for delegated sorting (e.g. SQL); `SortPolicy::{OnExternalChange, Live, OnDemand}` with `TableView::{refresh_rows, is_row_order_stale}`.
@@ -45,4 +41,8 @@ All notable changes to this project are documented here. The format follows
 - DND-1: dropping a column header moves the column instead of swapping it with the target.
 - DND-3: a selected cell follows its column when columns are moved.
 - DND-5: user column order is saved in `TableViewConfig`.
+
+### Docs
+
+- docs: internal references removed.
 
