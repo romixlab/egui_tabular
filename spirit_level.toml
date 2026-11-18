@@ -1,0 +1,8 @@
+# spirit_level configuration: https://github.com/romixlab/spirit_level (book: configuration)
+extends = ["medium", "ai", "egui"]
+
+# Override a lint: a level and/or parameters, always with a reason, optionally an expiry.
+# [lints.crate-lines]
+# level = "deny"
+# reason = "why"
+# expires = "2027-06-30"
